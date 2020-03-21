@@ -1,0 +1,6 @@
+*.json
+*.db
+rdriveapp
+.idea
+*.swo
+*.swp
