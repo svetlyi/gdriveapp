@@ -12,11 +12,12 @@ func init() {
 	queries = append(queries, `
 CREATE TABLE IF NOT EXISTS files (
 	id VARCHAR(255) PRIMARY KEY,
-	name VARCHAR(255),
+	prev_remote_name VARCHAR(255),
+	cur_remote_name VARCHAR(255),
 	hash VARCHAR(255),
 	download_time DATETIME,
-	remote_modification_time DATETIME,
-	last_remote_modification_time DATETIME,
+	prev_remote_modification_time DATETIME,
+	cur_remote_modification_time DATETIME,
 	mime_type VARCHAR(255),
 	shared SMALLINT,
 	root_folder SMALLINT,
@@ -28,7 +29,8 @@ CREATE TABLE IF NOT EXISTS files (
 	queries = append(queries, `
 CREATE TABLE IF NOT EXISTS files_parents (
 	file_id VARCHAR(255),
-	parent_id VARCHAR(255)
+	prev_parent_id VARCHAR(255),
+	cur_parent_id VARCHAR(255)
 )
 `)
 	queries = append(queries, `

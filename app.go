@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"github.com/pkg/errors"
 	"github.com/svetlyi/gdriveapp/app"
 	"github.com/svetlyi/gdriveapp/config"
 	"github.com/svetlyi/gdriveapp/contracts"
@@ -33,7 +34,7 @@ func main() {
 	// first sync changes in the remote drive
 	_, err = repository.GetRootFolder()
 	rd := rdrive.New(*srv.Files, *srv.Changes, repository, log, app.New(dbInstance, log))
-	if err == sql.ErrNoRows {
+	if errors.Cause(err) == sql.ErrNoRows {
 		if err = rd.FillDb(); nil != err {
 			log.Error("Synchronization error", err)
 			os.Exit(1)
@@ -58,7 +59,7 @@ func main() {
 			path string
 			mime string
 		}{
-			path: f.Path,
+			path: f.CurPath,
 			mime: f.MimeType,
 		})
 		syncRemoteWithLocalErr = rd.SyncRemoteWithLocal(f)

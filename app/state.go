@@ -2,21 +2,24 @@ package app
 
 import (
 	"database/sql"
+	"github.com/pkg/errors"
 	"github.com/svetlyi/gdriveapp/contracts"
 )
 
 const NextChangeToken = "next_change_token"
 
-type State struct {
+// Store is a storage for application settings,
+// that is stored in db
+type Store struct {
 	db  *sql.DB
 	log contracts.Logger
 }
 
-func New(db *sql.DB, log contracts.Logger) State {
-	return State{db: db, log: log}
+func New(db *sql.DB, log contracts.Logger) Store {
+	return Store{db: db, log: log}
 }
 
-func (fr State) createSetting(setting string, value string) error {
+func (fr Store) createSetting(setting string, value string) error {
 	query := `
 	INSERT INTO 
 	app_state(
@@ -38,7 +41,7 @@ func (fr State) createSetting(setting string, value string) error {
 	return err
 }
 
-func (fr *State) Get(setting string) (string, error) {
+func (fr *Store) Get(setting string) (string, error) {
 	stmt, err := fr.db.Prepare(
 		`SELECT
 				app_state.value
@@ -59,10 +62,10 @@ func (fr *State) Get(setting string) (string, error) {
 	return token, nil
 }
 
-func (fr *State) Set(setting string, value string) error {
+func (fr *Store) Set(setting string, value string) error {
 	// check if the setting exists. If it does, we create it, otherwise, update it
 	_, err := fr.Get(setting)
-	if err == sql.ErrNoRows {
+	if errors.Cause(err) == sql.ErrNoRows {
 		return fr.createSetting(setting, value)
 	} else if err != nil {
 		return err

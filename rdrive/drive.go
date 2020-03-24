@@ -17,7 +17,7 @@ type Drive struct {
 	filesService   drive.FilesService
 	changesService drive.ChangesService
 	fileRepository file.Repository
-	appState       app.State
+	appState       app.Store
 	log            contracts.Logger
 }
 
@@ -26,7 +26,7 @@ func New(
 	changesService drive.ChangesService,
 	fileRepository file.Repository,
 	log contracts.Logger,
-	appState app.State,
+	appState app.Store,
 ) Drive {
 	return Drive{
 		filesService:   filesService,
@@ -57,9 +57,9 @@ func (d *Drive) FillDb() error {
 	for gfile := range filesChan {
 		if _, err = d.fileRepository.GetFileById(gfile.Id); err == nil {
 			if t, err := time.Parse(time.RFC3339, gfile.ModifiedTime); err != nil {
-				return d.fileRepository.SetLastRemoteModificationDate(gfile.Id, t)
+				return d.fileRepository.SetCurRemoteData(gfile.Id, t, gfile.Name, gfile.Parents)
 			}
-		} else if sql.ErrNoRows == err { // if gfile is a new file in the remote drive
+		} else if sql.ErrNoRows == errors.Cause(err) { // if gfile is a new file in the remote drive
 			d.log.Debug("creating file in db", struct {
 				id   string
 				name string
@@ -68,10 +68,10 @@ func (d *Drive) FillDb() error {
 				name: gfile.Name,
 			})
 			if err = d.fileRepository.CreateFile(gfile); err != nil {
-				return err
+				return errors.Wrap(err, "error creating a new file in db in FillDb")
 			}
 		} else {
-			return err
+			return errors.Wrap(err, "error getting file by id in FillDb")
 		}
 	}
 	return nil
@@ -98,9 +98,9 @@ func (d *Drive) SaveChangesToDb() error {
 			} else {
 				if _, err = d.fileRepository.GetFileById(change.FileId); err == nil {
 					if t, err := time.Parse(time.RFC3339, change.File.ModifiedTime); err != nil {
-						return d.fileRepository.SetLastRemoteModificationDate(change.FileId, t)
+						return d.fileRepository.SetCurRemoteData(change.FileId, t, change.File.Name, change.File.Parents)
 					}
-				} else if sql.ErrNoRows == err { // if gfile is a new file in the remote drive
+				} else if sql.ErrNoRows == errors.Cause(err) { // if gfile is a new file in the remote drive
 					d.log.Debug("creating file in db", struct {
 						id   string
 						name string

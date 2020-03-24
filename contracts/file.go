@@ -3,27 +3,30 @@ package contracts
 import "time"
 
 type File struct {
-	Id   string
-	Name string
+	Id             string
+	PrevRemoteName string
+	CurRemoteName  string
 	// full path of the file
-	Path string
-	Hash string
+	PrevPath string
+	CurPath  string
+	Hash     string
 	// when the last time the file was downloaded. It is actually
 	// the last local modification date
 	DownloadTime time.Time
-	// previous modification time. After synchronization the LastRemoteModTime
+	// previous modification time. After synchronization the CurRemoteModTime
 	// field is populated with the actual modification time. After we see, if the fields
-	// RemoteModTime and LastRemoteModTime are not the same, it means
+	// PrevRemoteModTime and CurRemoteModTime are not the same, it means
 	// the remote file has been changed since the last synchronization.
-	RemoteModTime time.Time
+	PrevRemoteModTime time.Time
 	// after synchronization with the remote drive, the field is filled with
 	// the last modification time on the server. Having the field, we can say if it
 	// has been changed since the last synchronization.
-	LastRemoteModTime time.Time
-	MimeType          string
-	Shared            uint8
-	RootFolder        uint8
-	RemovedRemotely   uint8
+	CurRemoteModTime time.Time
+	MimeType         string
+	Shared           uint8
+	RootFolder       uint8
+	SizeBytes        uint64
+	RemovedRemotely  uint8
 	// if it was placed to trash
 	Trashed uint8
 }

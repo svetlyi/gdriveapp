@@ -14,6 +14,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var fileFieldsSet = "id, name, mimeType, parents, shared, md5Checksum, size, modifiedTime, trashed, explicitlyTrashed"
@@ -66,7 +67,7 @@ func (d *Drive) getFilesList(filesChan chan *drive.File) {
 // one by one
 func (d *Drive) getChangedFilesList(filesChan chan *drive.Change, exitChan contracts.ExitChan) {
 	nextPageToken, err := d.appState.Get(app.NextChangeToken)
-	if err != nil && err != sql.ErrNoRows {
+	if err != nil && errors.Cause(err) != sql.ErrNoRows {
 		d.log.Error("error getting NextChangeToken from app state", err)
 		close(exitChan)
 	}
@@ -169,16 +170,16 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 		}{
 			local:  localChangeType,
 			remote: remoteChangeType,
-			file:   file.Name,
+			file:   file.CurRemoteName,
 			mime:   file.MimeType,
 		})
 	}
 
-	curFullFilePath := lfile.GetFullPath(file)
+	curFullFilePath := lfile.GetCurFullPath(file)
 	if isFolder(file) {
 		d.log.Debug("Creating folder", struct {
 			name string
-		}{name: file.Name})
+		}{name: file.CurRemoteName})
 		if err := os.Mkdir(curFullFilePath, 0644); !os.IsExist(err) {
 			return errors.Wrap(err, "could not create dir")
 		}
@@ -193,7 +194,7 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 			d.log.Debug("downloading file. remote file has not changed. local one does not exist", struct {
 				id   string
 				name string
-			}{id: file.Id, name: file.Name})
+			}{id: file.Id, name: file.CurRemoteName})
 			if err = d.download(file); err != nil {
 				return errors.Wrapf(err, "could not download file %s", file.Id)
 			}
@@ -203,7 +204,7 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 			d.log.Debug("updating file remotely", struct {
 				id   string
 				name string
-			}{id: file.Id, name: file.Name})
+			}{id: file.Id, name: file.CurRemoteName})
 			if err = d.upload(file); err != nil {
 				return errors.Wrapf(err, "could not upload file %s", file.Id)
 			}
@@ -211,7 +212,7 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 			d.log.Debug("deleting file remotely", struct {
 				id   string
 				name string
-			}{id: file.Id, name: file.Name})
+			}{id: file.Id, name: file.CurRemoteName})
 			if err = d.delete(file); err != nil {
 				return errors.Wrapf(err, "could not delete file %s", file.Id)
 			}
@@ -221,7 +222,7 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 			d.log.Debug("downloading file. remote file changed", struct {
 				id   string
 				name string
-			}{id: file.Id, name: file.Name})
+			}{id: file.Id, name: file.CurRemoteName})
 			if err = d.download(file); err != nil {
 				return errors.Wrapf(err, "could not download file %s", file.Id)
 			}
@@ -235,7 +236,7 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 			d.log.Debug("deleting file locally", struct {
 				id   string
 				name string
-			}{id: file.Id, name: file.Name})
+			}{id: file.Id, name: file.CurRemoteName})
 			return os.Remove(curFullFilePath)
 		} else if contracts.FILE_UPDATED == localChangeType {
 			//TODO: conflict
@@ -250,7 +251,7 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 // isChangedLocally determines if the file was changed locally (updated or deleted)
 func (d *Drive) isChangedLocally(file contracts.File) (contracts.FileChangeType, error) {
 	// if the file does not exist
-	if stats, err := os.Stat(lfile.GetFullPath(file)); os.IsNotExist(err) {
+	if stats, err := os.Stat(lfile.GetCurFullPath(file)); os.IsNotExist(err) {
 		if file.DownloadTime.IsZero() {
 			return contracts.FILE_NOT_EXIST, nil
 		} else {
@@ -287,7 +288,7 @@ func (d *Drive) isChangedRemotely(file contracts.File) (contracts.FileChangeType
 	if file.RemovedRemotely == 1 || file.Trashed == 1 {
 		return contracts.FILE_DELETED, nil
 	}
-	if file.LastRemoteModTime.Equal(file.RemoteModTime) {
+	if file.CurRemoteModTime.Equal(file.PrevRemoteModTime) {
 		return contracts.FILE_NOT_CHANGED, nil
 	} else {
 		return contracts.FILE_UPDATED, nil
@@ -295,20 +296,20 @@ func (d *Drive) isChangedRemotely(file contracts.File) (contracts.FileChangeType
 }
 
 func (d *Drive) upload(file contracts.File) error {
-	//if lf, err := os.Open(file.Path); err == nil {
-	//	rf, err := d.filesService.Update(file.Id, &drive.File{}).Media(lf).Do()
-	//	if err != nil {
-	//		return err
-	//	}
-	//	if t, err := time.Parse(time.RFC3339, rf.ModifiedTime); err != nil {
-	//		return d.fileRepository.SetRemoteModificationDate(file.Id, t)
-	//	} else {
-	//		return err
-	//	}
-	//} else {
-	//	d.log.Error("open file error", file.Path)
-	//	return err
-	//}
+	curFullPath := lfile.GetCurFullPath(file)
+	if lf, err := os.Open(curFullPath); err == nil {
+		rf, err := d.filesService.Update(file.Id, &drive.File{}).Media(lf).Do()
+		if err != nil {
+			return errors.Wrap(err, "could not update file remotely")
+		}
+		if t, err := time.Parse(time.RFC3339, rf.ModifiedTime); err != nil {
+			return d.fileRepository.SetRemoteModificationDate(file.Id, t)
+		} else {
+			return errors.Wrapf(err, "could not parse modified time %s", rf.ModifiedTime)
+		}
+	} else {
+		return errors.Wrapf(err, "open file %s error", curFullPath)
+	}
 }
 
 func (d *Drive) delete(file contracts.File) error {
@@ -328,7 +329,7 @@ func (d *Drive) download(file contracts.File) error {
 		d.log.Error("Unable to retrieve file: %v", err)
 		return err
 	}
-	fileFullPath := lfile.GetFullPath(file)
+	fileFullPath := lfile.GetCurFullPath(file)
 	lf, err := os.Create(fileFullPath)
 
 	if err == nil {
