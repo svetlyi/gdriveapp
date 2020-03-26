@@ -41,4 +41,5 @@ const (
 	FILE_NOT_CHANGED FileChangeType = "not_changed"
 	FILE_NOT_EXIST   FileChangeType = "not_exist"
 	FILE_ERROR       FileChangeType = "error"
+	FILE_MOVED       FileChangeType = "moved"
 )

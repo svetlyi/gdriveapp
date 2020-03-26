@@ -92,16 +92,27 @@ func (d *Drive) SaveChangesToDb() error {
 			}
 			// we do not have a trash been here, so we mark just as removed
 			if change.Removed || change.File.Trashed || change.File.ExplicitlyTrashed {
+				d.log.Debug("changes:removed", struct{ id string }{id: change.FileId})
+
 				if err = d.fileRepository.SetRemovedRemotely(change.FileId); err != nil {
 					return errors.Wrap(err, "could not SetRemovedRemotely")
 				}
 			} else {
 				if _, err = d.fileRepository.GetFileById(change.FileId); err == nil {
 					if t, err := time.Parse(time.RFC3339, change.File.ModifiedTime); err != nil {
+						d.log.Debug("changes:creating a new file in db", struct {
+							id   string
+							name string
+						}{
+							id:   change.FileId,
+							name: change.File.Name,
+						})
 						return d.fileRepository.SetCurRemoteData(change.FileId, t, change.File.Name, change.File.Parents)
+					} else {
+						return errors.Wrapf(err, "could not parse modified time %v", change.File.ModifiedTime)
 					}
 				} else if sql.ErrNoRows == errors.Cause(err) { // if gfile is a new file in the remote drive
-					d.log.Debug("creating file in db", struct {
+					d.log.Debug("changes:creating a new file in db", struct {
 						id   string
 						name string
 					}{

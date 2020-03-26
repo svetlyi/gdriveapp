@@ -1,6 +1,7 @@
 package rdrive
 
 import (
+	"crypto/md5"
 	"database/sql"
 	"fmt"
 	"github.com/pkg/errors"
@@ -74,13 +75,14 @@ func (d *Drive) getChangedFilesList(filesChan chan *drive.Change, exitChan contr
 
 	var changesListCall *drive.ChangesListCall
 
+	startPageToken, err := d.changesService.GetStartPageToken().Do()
+	if err != nil {
+		d.log.Error("error getting start page token in changed files list", err)
+		close(exitChan)
+	}
+
 	for {
 		if nextPageToken == "" {
-			startPageToken, err := d.changesService.GetStartPageToken().Do()
-			if err != nil {
-				d.log.Error("error getting start page token in changed files list", err)
-				os.Exit(1)
-			}
 			nextPageToken = startPageToken.StartPageToken
 			d.log.Info("next page token", nextPageToken)
 		}
@@ -121,11 +123,13 @@ func (d *Drive) getChangedFilesList(filesChan chan *drive.Change, exitChan contr
 
 		if "" == nextPageToken {
 			break
-		} else if err := d.appState.Set(app.NextChangeToken, nextPageToken); err != nil {
-			d.log.Error("error saving NextChangeToken to app state", err)
-			close(exitChan)
 		}
 	}
+	if err := d.appState.Set(app.NextChangeToken, startPageToken.StartPageToken); err != nil {
+		d.log.Error("error saving NextChangeToken to app state", err)
+		close(exitChan)
+	}
+
 	close(filesChan)
 }
 
@@ -296,6 +300,13 @@ func (d *Drive) isChangedRemotely(file contracts.File) (contracts.FileChangeType
 }
 
 func (d *Drive) upload(file contracts.File) error {
+	if sameFileExists, err := d.isLocalSameAsRemote(file); err == nil && sameFileExists {
+		d.log.Debug(fmt.Sprintf("skipping file %s: already exists", file.Id), nil)
+		return d.setDownloadTimeByStats(file) // most probably it was not downloaded previously
+	} else if err != nil {
+		return err
+	}
+
 	curFullPath := lfile.GetCurFullPath(file)
 	if lf, err := os.Open(curFullPath); err == nil {
 		rf, err := d.filesService.Update(file.Id, &drive.File{}).Media(lf).Do()
@@ -303,7 +314,7 @@ func (d *Drive) upload(file contracts.File) error {
 			return errors.Wrap(err, "could not update file remotely")
 		}
 		if t, err := time.Parse(time.RFC3339, rf.ModifiedTime); err != nil {
-			return d.fileRepository.SetRemoteModificationDate(file.Id, t)
+			return d.fileRepository.SetPrevRemoteModificationDate(file.Id, t)
 		} else {
 			return errors.Wrapf(err, "could not parse modified time %s", rf.ModifiedTime)
 		}
@@ -324,12 +335,25 @@ func (d *Drive) delete(file contracts.File) error {
 }
 
 func (d *Drive) download(file contracts.File) error {
+	fileFullPath := lfile.GetCurFullPath(file)
+
+	if sameFileExists, err := d.isLocalSameAsRemote(file); err == nil && sameFileExists {
+		d.log.Debug(fmt.Sprintf("skipping file %s: already exists", file.Id), nil)
+		if err = d.setDownloadTimeByStats(file); err != nil {
+			return err
+		}
+		if err = d.fileRepository.SetPrevRemoteModificationDate(file.Id, file.CurRemoteModTime); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+
 	gfileReader, err := d.filesService.Get(file.Id).Download()
 	if err != nil {
 		d.log.Error("Unable to retrieve file: %v", err)
 		return err
 	}
-	fileFullPath := lfile.GetCurFullPath(file)
 	lf, err := os.Create(fileFullPath)
 
 	if err == nil {
@@ -357,14 +381,46 @@ func (d *Drive) download(file contracts.File) error {
 				return errors.Wrap(err, "could not write a chunk")
 			}
 		}
-		if stat, err := os.Stat(fileFullPath); err == nil {
-			return d.fileRepository.SetDownloadTime(file.Id, stat.ModTime())
-		} else {
-			return errors.Wrapf(err, "could not get the file's %s stats", fileFullPath)
-		}
+		return d.setDownloadTimeByStats(file)
 	}
 
 	return err
+}
+
+// isLocalSameAsRemote checks that a file with the same path, name and hash exists
+// if it exists, we won't download it. We need it when for some reason the database was empty
+// or the downloaded time in the database is null
+func (d *Drive) isLocalSameAsRemote(file contracts.File) (bool, error) {
+	fileFullPath := lfile.GetCurFullPath(file)
+	f, err := os.Open(fileFullPath)
+
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		} else {
+			return false, errors.Wrapf(err, "could not check if the file %s exists", fileFullPath)
+		}
+	}
+	defer f.Close()
+
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return false, errors.Wrapf(err, "could not get the file's %s hash", fileFullPath)
+	}
+
+	fileHash := fmt.Sprintf("%x", h.Sum(nil))
+	d.log.Debug(fmt.Sprintf("calculated hash for %s: %s. File id: %s", fileFullPath, fileHash, file.Id), nil)
+
+	return file.Hash == fileHash, nil
+}
+
+func (d *Drive) setDownloadTimeByStats(file contracts.File) error {
+	fileFullPath := lfile.GetCurFullPath(file)
+	if stat, err := os.Stat(fileFullPath); err == nil {
+		return d.fileRepository.SetDownloadTime(file.Id, stat.ModTime())
+	} else {
+		return errors.Wrapf(err, "could not get the file's %s stats", fileFullPath)
+	}
 }
 
 func isFolder(file contracts.File) bool {

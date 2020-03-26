@@ -6,6 +6,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/svetlyi/gdriveapp/contracts"
 	"google.golang.org/api/drive/v3"
+	"path/filepath"
 	"time"
 )
 
@@ -225,7 +226,7 @@ func (fr *Repository) Delete(fileId string) error {
 	return nil
 }
 
-func (fr *Repository) SetRemoteModificationDate(fileId string, date time.Time) error {
+func (fr *Repository) SetPrevRemoteModificationDate(fileId string, date time.Time) error {
 	query := `UPDATE files SET 'prev_remote_modification_time' = ? WHERE id = ?`
 	updateStmt, err := fr.db.Prepare(query)
 	if err == nil {
@@ -268,38 +269,46 @@ func (fr *Repository) GetFileById(id string) (contracts.File, error) {
 	return getOneFile(selectRootStmt, id)
 }
 
-// GetFilePath gets the full file path for the file with the provided id
-func (fr *Repository) GetFilePath(id string) (curPath string, prevPath string, err error) {
+// GetFileParentFolder gets the path to the parent folder of the file with the provided id
+func (fr *Repository) GetFileParentFolder(id string) (curPath string, prevPath string, err error) {
 	selectPathStmt, err := fr.db.Prepare(`
-		WITH get_prev_parents (parent_id, name) AS (
-			SELECT fp.prev_parent_id, f.prev_remote_name
+		WITH get_prev_parents (ordi, parent_id, name) AS (
+			SELECT 0, fp.prev_parent_id, f_parent.prev_remote_name
 			FROM files f
 					 JOIN files_parents fp ON f.id = fp.file_id
-			WHERE id = ?
+					 JOIN files f_parent ON f_parent.id = fp.prev_parent_id
+			WHERE f.id = ?
 			UNION ALL
-			SELECT fp.prev_parent_id, f.prev_remote_name
+			SELECT ordi + 1, fp.prev_parent_id, f_parent.prev_remote_name
 			FROM get_prev_parents gp
 					 JOIN files f ON gp.parent_id = f.id
 					 JOIN files_parents fp ON f.id = fp.file_id
+					 JOIN files f_parent ON f_parent.id = fp.prev_parent_id
 		),
-			 get_cur_parents (parent_id, name) AS (
-				 SELECT fp.cur_parent_id, f.cur_remote_name
+			 get_cur_parents (ordi, parent_id, name) AS (
+				 SELECT 0, fp.cur_parent_id, f_parent.cur_remote_name
 				 FROM files f
 						  JOIN files_parents fp ON f.id = fp.file_id
-				 WHERE id = ?
+						  JOIN files f_parent ON f_parent.id = fp.cur_parent_id
+				 WHERE f.id = ?
 				 UNION ALL
-				 SELECT fp.cur_parent_id, f.cur_remote_name
+				 SELECT ordi + 1, fp.cur_parent_id, f_parent.cur_remote_name
 				 FROM get_cur_parents gp
 						  JOIN files f ON gp.parent_id = f.id
 						  JOIN files_parents fp ON f.id = fp.file_id
+						  JOIN files f_parent ON f_parent.id = fp.cur_parent_id
 			 )
 		select *
-		from (SELECT group_concat(gpp_f.prev_remote_name, '/') as prevPath
-			  FROM get_prev_parents gpp
-					   join files gpp_f on gpp.parent_id = gpp_f.id)
-				 join (SELECT group_concat(gcp_f.cur_remote_name, '/') as curPath
-					   FROM get_cur_parents gcp
-								join files gcp_f on gcp.parent_id = gcp_f.id);
+		from (
+			  (select group_concat(gpp.name, '/') as prevPath
+			   from (SELECT name
+					 FROM get_prev_parents
+					 order by ordi desc) gpp)
+				 JOIN
+			 (select group_concat(gcp.name, '/') as curPath
+			  from (SELECT name
+					FROM get_cur_parents
+					order by ordi desc) gcp))
 	`)
 
 	if nil != err {
@@ -342,10 +351,12 @@ func (fr *Repository) GetCurFilesListByParent(parentId string) ([]contracts.File
 		var f contracts.File
 
 		if f, err = parseFileFromRow(rows); err == nil {
-			f.CurPath, f.PrevPath, err = fr.GetFilePath(f.Id)
+			f.CurPath, f.PrevPath, err = fr.GetFileParentFolder(f.Id)
 			if err != nil {
 				return filesList, errors.Wrapf(err, "Could not get full path for file %s", f.Id)
 			}
+			f.CurPath = filepath.Join(f.CurPath, f.CurRemoteName)
+			f.PrevPath = filepath.Join(f.CurPath, f.PrevRemoteName)
 			filesList = append(filesList, f)
 		} else {
 			return filesList, errors.Wrap(err, "Error looping over files in getFilesList.")
@@ -363,10 +374,10 @@ func (fr *Repository) HasTrashedParent(id string) (bool, error) {
 		`WITH parents AS (
 					SELECT f.id
 					FROM files f
-							 JOIN files_parents fp ON fp.parent_id = f.id
+							 JOIN files_parents fp ON fp.cur_parent_id = f.id
 					WHERE file_id = ?
 					UNION ALL
-					SELECT fp.parent_id
+					SELECT fp.cur_parent_id
 					FROM parents fp_cte
 					join files_parents fp where fp.file_id = fp_cte.id
 				)
