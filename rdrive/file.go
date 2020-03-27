@@ -82,6 +82,11 @@ func (d *Drive) getChangedFilesList(filesChan chan *drive.Change, exitChan contr
 	}
 
 	for {
+		d.log.Debug("change token", struct {
+			nextPageToken  string
+			startPageToken string
+		}{nextPageToken, startPageToken.StartPageToken})
+
 		if nextPageToken == "" {
 			nextPageToken = startPageToken.StartPageToken
 			d.log.Info("next page token", nextPageToken)
@@ -93,6 +98,7 @@ func (d *Drive) getChangedFilesList(filesChan chan *drive.Change, exitChan contr
 
 		if err != nil {
 			d.log.Error("Unable to retrieve changed files: %v", err)
+			close(exitChan)
 			break
 		}
 		nextPageToken = changeList.NextPageToken
@@ -101,13 +107,13 @@ func (d *Drive) getChangedFilesList(filesChan chan *drive.Change, exitChan contr
 
 		for _, change := range changeList.Changes {
 			if change.Removed {
-				d.log.Debug(fmt.Sprintf("File with %s was removed", change.FileId), nil)
+				d.log.Debug(fmt.Sprintf("changeList:file %s was removed", change.FileId), nil)
 			} else if change.File.Trashed {
-				d.log.Debug(fmt.Sprintf("File with %s was trashed", change.FileId), nil)
+				d.log.Debug(fmt.Sprintf("changeList:file %s was trashed", change.FileId), nil)
 			} else if change.File.ExplicitlyTrashed {
-				d.log.Debug(fmt.Sprintf("File with %s was explicitly trashed", change.FileId), nil)
+				d.log.Debug(fmt.Sprintf("changeList:file %s was explicitly trashed", change.FileId), nil)
 			} else {
-				d.log.Debug("Found change", struct {
+				d.log.Debug("changeList:found change", struct {
 					Id           string
 					Name         string
 					ModifiedTime string
@@ -117,11 +123,13 @@ func (d *Drive) getChangedFilesList(filesChan chan *drive.Change, exitChan contr
 					ModifiedTime: change.File.ModifiedTime,
 				})
 			}
-
+			d.log.Debug("send1", nil)
 			filesChan <- change
+			d.log.Debug("send2", nil)
 		}
 
 		if "" == nextPageToken {
+			d.log.Debug("no more changes", nil)
 			break
 		}
 	}
@@ -129,6 +137,7 @@ func (d *Drive) getChangedFilesList(filesChan chan *drive.Change, exitChan contr
 		d.log.Error("error saving NextChangeToken to app state", err)
 		close(exitChan)
 	}
+	d.log.Info("changes:closing files channel", nil)
 
 	close(filesChan)
 }
@@ -164,28 +173,22 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 
 	if (localChangeType != contracts.FILE_NOT_CHANGED ||
 		remoteChangeType != contracts.FILE_NOT_CHANGED) &&
-		canDownloadFile(file) {
-		d.log.Debug("SyncRemoteWithLocal. change types", struct {
-			local  contracts.FileChangeType
-			remote contracts.FileChangeType
-			file   string
-			path   string
-			mime   string
-		}{
-			local:  localChangeType,
-			remote: remoteChangeType,
-			file:   file.CurRemoteName,
-			mime:   file.MimeType,
-		})
+		canDownloadFile(file) ||
+		isFolder(file) {
+		d.log.Debug("SyncRemoteWithLocal. change types", file)
 	}
 
 	curFullFilePath := lfile.GetCurFullPath(file)
 	if isFolder(file) {
-		d.log.Debug("Creating folder", struct {
-			name string
-		}{name: file.CurRemoteName})
-		if err := os.Mkdir(curFullFilePath, 0644); !os.IsExist(err) {
-			return errors.Wrap(err, "could not create dir")
+		if remoteChangeType == contracts.FILE_MOVED {
+			return d.handleMoved(file)
+		} else {
+			d.log.Debug("Creating folder", struct {
+				name string
+			}{name: file.CurRemoteName})
+			if err := os.Mkdir(curFullFilePath, 0644); !os.IsExist(err) {
+				return errors.Wrap(err, "could not create dir")
+			}
 		}
 		return nil
 	}
@@ -247,9 +250,26 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 		} else if contracts.FILE_DELETED == localChangeType {
 			return nil
 		}
+	} else if contracts.FILE_MOVED == remoteChangeType {
+		return d.handleMoved(file)
 	}
 
 	return nil
+}
+
+// isChangedLocally determines if the file was changed locally (updated or deleted)
+func (d *Drive) handleMoved(file contracts.File) (err error) {
+	curFullFilePath := lfile.GetCurFullPath(file)
+	getPrevFullPath := lfile.GetPrevFullPath(file)
+	if _, err = os.Stat(getPrevFullPath); os.IsNotExist(err) {
+		//TODO: conflict
+		return nil
+	}
+
+	if _, err = os.Stat(curFullFilePath); os.IsNotExist(err) {
+		err = os.Rename(getPrevFullPath, curFullFilePath)
+	}
+	return err
 }
 
 // isChangedLocally determines if the file was changed locally (updated or deleted)
@@ -287,16 +307,18 @@ func (d *Drive) isChangedRemotely(file contracts.File) (contracts.FileChangeType
 			return contracts.FILE_DELETED, nil
 		}
 	} else {
-		return contracts.FILE_ERROR, err
+		return contracts.FILE_ERROR, errors.Wrap(err, "error checking trashed parent")
 	}
 	if file.RemovedRemotely == 1 || file.Trashed == 1 {
 		return contracts.FILE_DELETED, nil
 	}
-	if file.CurRemoteModTime.Equal(file.PrevRemoteModTime) {
-		return contracts.FILE_NOT_CHANGED, nil
-	} else {
+	if file.PrevPath != file.CurPath {
+		return contracts.FILE_MOVED, nil
+	}
+	if !file.CurRemoteModTime.Equal(file.PrevRemoteModTime) {
 		return contracts.FILE_UPDATED, nil
 	}
+	return contracts.FILE_NOT_CHANGED, nil
 }
 
 func (d *Drive) upload(file contracts.File) error {

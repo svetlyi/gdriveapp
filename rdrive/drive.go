@@ -88,6 +88,7 @@ func (d *Drive) SaveChangesToDb() error {
 		select {
 		case change, ok := <-changesChan:
 			if !ok { //no more changes
+				d.log.Debug("changesChan closed", nil)
 				return nil
 			}
 			// we do not have a trash been here, so we mark just as removed
@@ -99,7 +100,7 @@ func (d *Drive) SaveChangesToDb() error {
 				}
 			} else {
 				if _, err = d.fileRepository.GetFileById(change.FileId); err == nil {
-					if t, err := time.Parse(time.RFC3339, change.File.ModifiedTime); err != nil {
+					if t, err := time.Parse(time.RFC3339, change.File.ModifiedTime); err == nil {
 						d.log.Debug("changes:creating a new file in db", struct {
 							id   string
 							name string
@@ -107,7 +108,9 @@ func (d *Drive) SaveChangesToDb() error {
 							id:   change.FileId,
 							name: change.File.Name,
 						})
-						return d.fileRepository.SetCurRemoteData(change.FileId, t, change.File.Name, change.File.Parents)
+						if err = d.fileRepository.SetCurRemoteData(change.FileId, t, change.File.Name, change.File.Parents); err != nil {
+							return errors.Wrap(err, "could not SetCurRemoteData")
+						}
 					} else {
 						return errors.Wrapf(err, "could not parse modified time %v", change.File.ModifiedTime)
 					}
@@ -120,15 +123,15 @@ func (d *Drive) SaveChangesToDb() error {
 						name: change.File.Name,
 					})
 					if err = d.fileRepository.CreateFile(change.File); err != nil {
-						return err
+						return errors.Wrap(err, "could not CreateFile in db")
 					}
 				} else {
-					return err
+					return errors.Wrap(err, "could not GetFileById")
 				}
 			}
 		case <-exitChan:
 			err = errors.New("saving changes to db error")
-		case <-time.After(5 * time.Second):
+		case <-time.After(10 * time.Second):
 			err = errors.New("timeout error")
 		}
 

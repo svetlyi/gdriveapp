@@ -161,9 +161,11 @@ func (fr *Repository) GetRootFolder() (contracts.File, error) {
 func (fr *Repository) SetCurRemoteData(fileId string, mtime time.Time, name string, parents []string) error {
 	if len(parents) > 1 {
 		return errors.New("there is no support for multiple parents yet")
+	} else if len(parents) == 0 {
+		return nil
 	}
 
-	if err := fr.setFileCurRemoteData(fileId, mtime, parents[0]); err != nil {
+	if err := fr.setFileCurRemoteData(fileId, mtime, name); err != nil {
 		return err
 	}
 	if err := fr.setCurRemoteFileParent(fileId, parents[0]); err != nil {
@@ -356,7 +358,7 @@ func (fr *Repository) GetCurFilesListByParent(parentId string) ([]contracts.File
 				return filesList, errors.Wrapf(err, "Could not get full path for file %s", f.Id)
 			}
 			f.CurPath = filepath.Join(f.CurPath, f.CurRemoteName)
-			f.PrevPath = filepath.Join(f.CurPath, f.PrevRemoteName)
+			f.PrevPath = filepath.Join(f.PrevPath, f.PrevRemoteName)
 			filesList = append(filesList, f)
 		} else {
 			return filesList, errors.Wrap(err, "Error looping over files in getFilesList.")
