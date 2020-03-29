@@ -123,9 +123,7 @@ func (d *Drive) getChangedFilesList(filesChan chan *drive.Change, exitChan contr
 					ModifiedTime: change.File.ModifiedTime,
 				})
 			}
-			d.log.Debug("send1", nil)
 			filesChan <- change
-			d.log.Debug("send2", nil)
 		}
 
 		if "" == nextPageToken {
@@ -175,7 +173,11 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 		remoteChangeType != contracts.FILE_NOT_CHANGED) &&
 		canDownloadFile(file) ||
 		isFolder(file) {
-		d.log.Debug("SyncRemoteWithLocal. change types", file)
+		d.log.Debug("SyncRemoteWithLocal. change types", struct {
+			file             contracts.File
+			localChangeType  contracts.FileChangeType
+			remoteChangeType contracts.FileChangeType
+		}{file, localChangeType, remoteChangeType})
 	}
 
 	curFullFilePath := lfile.GetCurFullPath(file)
@@ -190,7 +192,7 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 				return errors.Wrap(err, "could not create dir")
 			}
 		}
-		return nil
+		return d.setDownloadTimeByStats(file)
 	}
 	if !canDownloadFile(file) {
 		return nil
@@ -269,6 +271,13 @@ func (d *Drive) handleMoved(file contracts.File) (err error) {
 	if _, err = os.Stat(curFullFilePath); os.IsNotExist(err) {
 		err = os.Rename(getPrevFullPath, curFullFilePath)
 	}
+	if err != nil {
+		err = d.fileRepository.SetPrevRemoteDataToCur(file.Id)
+	}
+	if err != nil {
+		err = d.setDownloadTimeByStats(file)
+	}
+
 	return err
 }
 

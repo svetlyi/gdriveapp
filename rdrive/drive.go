@@ -101,7 +101,7 @@ func (d *Drive) SaveChangesToDb() error {
 			} else {
 				if _, err = d.fileRepository.GetFileById(change.FileId); err == nil {
 					if t, err := time.Parse(time.RFC3339, change.File.ModifiedTime); err == nil {
-						d.log.Debug("changes:creating a new file in db", struct {
+						d.log.Debug("changes:setting remote data", struct {
 							id   string
 							name string
 						}{

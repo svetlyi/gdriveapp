@@ -145,15 +145,10 @@ func (fr *Repository) linkWithParents(file *drive.File) error {
 // getRootFolder gets the root folder. As in google drive as in Linux
 // everything is a file, we return a file.
 func (fr *Repository) GetRootFolder() (contracts.File, error) {
-	selectRootStmt, err := fr.db.Prepare(
+	row := fr.db.QueryRow(
 		fmt.Sprintf(`SELECT %s FROM files WHERE files.root_folder = 1 LIMIT 1`, fileSelectFields),
 	)
-
-	if nil != err {
-		return contracts.File{}, err
-	}
-
-	return getOneFile(selectRootStmt)
+	return parseFileFromRow(row)
 }
 
 // SetCurRemoteData updates cur_remote_modification_time and other data so that
@@ -173,6 +168,45 @@ func (fr *Repository) SetCurRemoteData(fileId string, mtime time.Time, name stri
 	}
 
 	return nil
+}
+
+func (fr *Repository) SetPrevRemoteDataToCur(fileId string) error {
+	var err error
+	err = fr.setPrevRemoteModTimeToCur(fileId)
+	if err != nil {
+		err = fr.setPrevRemoteParentToCur(fileId)
+	}
+	return err
+}
+
+func (fr *Repository) setPrevRemoteParentToCur(fileId string) error {
+	query := `UPDATE files_parents SET prev_parent_id = cur_parent_id WHERE files_parents.file_id = ?`
+	updateStmt, err := fr.db.Prepare(query)
+	if err == nil {
+		defer updateStmt.Close()
+		_, err = updateStmt.Exec(fileId)
+	}
+	if err != nil {
+		err = errors.Wrapf(err, "could not update file's %s previous mod time", fileId)
+	}
+	return err
+}
+
+func (fr *Repository) setPrevRemoteModTimeToCur(fileId string) error {
+	query := `UPDATE files SET
+		prev_remote_modification_time = cur_remote_modification_time,
+		prev_remote_name = cur_remote_name
+		WHERE files.id = ?
+	`
+	updateStmt, err := fr.db.Prepare(query)
+	if err == nil {
+		defer updateStmt.Close()
+		_, err = updateStmt.Exec(fileId)
+	}
+	if err != nil {
+		err = errors.Wrapf(err, "could not update file's %s previous mod time", fileId)
+	}
+	return err
 }
 
 func (fr *Repository) setFileCurRemoteData(fileId string, mtime time.Time, name string) error {
@@ -245,12 +279,17 @@ func (fr *Repository) SetPrevRemoteModificationDate(fileId string, date time.Tim
 func (fr *Repository) SetDownloadTime(fileId string, date time.Time) error {
 	query := `UPDATE files SET 'download_time' = ? WHERE id = ?`
 	updateStmt, err := fr.db.Prepare(query)
-	if err == nil {
+	if nil == err || sql.ErrNoRows == err {
 		defer updateStmt.Close()
+	}
+	if err == nil {
 		_, err = updateStmt.Exec(date.Format(time.RFC3339), fileId)
 	}
+	if err != nil {
+		err = errors.Wrap(err, "could not set download time")
+	}
 
-	return errors.Wrap(err, "could not set download time")
+	return err
 }
 
 // getRootFolder gets the root folder. As in google drive everything is a file,
@@ -259,6 +298,9 @@ func (fr *Repository) GetFileById(id string) (contracts.File, error) {
 	selectRootStmt, err := fr.db.Prepare(
 		fmt.Sprintf(`SELECT %s FROM files WHERE files.id = ? LIMIT 1`, fileSelectFields),
 	)
+	if sql.ErrNoRows == err {
+		selectRootStmt.Close()
+	}
 
 	if nil != err {
 		fr.log.Debug("did not find file in db", struct {
@@ -273,7 +315,7 @@ func (fr *Repository) GetFileById(id string) (contracts.File, error) {
 
 // GetFileParentFolder gets the path to the parent folder of the file with the provided id
 func (fr *Repository) GetFileParentFolder(id string) (curPath string, prevPath string, err error) {
-	selectPathStmt, err := fr.db.Prepare(`
+	query := `
 		WITH get_prev_parents (ordi, parent_id, name) AS (
 			SELECT 0, fp.prev_parent_id, f_parent.prev_remote_name
 			FROM files f
@@ -311,15 +353,13 @@ func (fr *Repository) GetFileParentFolder(id string) (curPath string, prevPath s
 			  from (SELECT name
 					FROM get_cur_parents
 					order by ordi desc) gcp))
-	`)
+	`
 
-	if nil != err {
-		err = errors.Wrap(err, "could not prepare selectPathStmt")
-		return
+	err = fr.db.QueryRow(query, id, id).Scan(&prevPath, &curPath)
+
+	if nil != err && sql.ErrNoRows != err {
+		err = errors.Wrap(err, "could not get GetFileParentFolder")
 	}
-	defer selectPathStmt.Close()
-
-	err = selectPathStmt.QueryRow(id, id).Scan(&prevPath, &curPath)
 	return
 }
 
@@ -331,7 +371,7 @@ func (fr *Repository) GetCurFilesListByParent(parentId string) ([]contracts.File
 	}{
 		parentId: parentId,
 	})
-	selectFilesStmt, err := fr.db.Prepare(
+	rows, err := fr.db.Query(
 		fmt.Sprintf(`
 			SELECT %s
 			FROM files 
@@ -339,16 +379,14 @@ func (fr *Repository) GetCurFilesListByParent(parentId string) ([]contracts.File
 			WHERE fp.cur_parent_id=?`,
 			fileSelectFields,
 		),
+		parentId,
 	)
-	if nil != err {
-		return filesList, errors.Wrap(err, "Error preparing statement for selecting files.")
-	}
-	defer selectFilesStmt.Close()
-	rows, err := selectFilesStmt.Query(parentId)
+
 	if nil != err {
 		return filesList, errors.Wrap(err, "Error querying files by parent id.")
 	}
 	defer rows.Close()
+
 	for rows.Next() {
 		var f contracts.File
 
@@ -364,6 +402,7 @@ func (fr *Repository) GetCurFilesListByParent(parentId string) ([]contracts.File
 			return filesList, errors.Wrap(err, "Error looping over files in getFilesList.")
 		}
 	}
+
 	if err = rows.Err(); err != nil {
 		return filesList, errors.Wrap(err, "Error fetching files by parent id.")
 	}
@@ -386,6 +425,9 @@ func (fr *Repository) HasTrashedParent(id string) (bool, error) {
 				select 1 from parents p join files f on f.id = p.id where f.trashed = 1 limit 1;`,
 	)
 
+	if nil == err || sql.ErrNoRows == err {
+		defer stmt.Close()
+	}
 	if nil != err {
 		fr.log.Debug("could not prepare request for trashed parent", struct {
 			id string
@@ -395,7 +437,6 @@ func (fr *Repository) HasTrashedParent(id string) (bool, error) {
 		return false, err
 	}
 
-	defer stmt.Close()
 	var hasBeenChanged bool
 
 	if err := stmt.QueryRow(id).Scan(&hasBeenChanged); errors.Cause(err) == sql.ErrNoRows {
@@ -408,8 +449,8 @@ func (fr *Repository) HasTrashedParent(id string) (bool, error) {
 }
 
 func getOneFile(stmt *sql.Stmt, args ...interface{}) (f contracts.File, err error) {
-	row := stmt.QueryRow(args...)
 	defer stmt.Close()
+	row := stmt.QueryRow(args...)
 	f, err = parseFileFromRow(row)
 	return
 }

@@ -46,21 +46,17 @@ func (fr Store) createSetting(setting string, value string) error {
 }
 
 func (fr *Store) Get(setting string) (string, error) {
-	stmt, err := fr.db.Prepare(
+	row := fr.db.QueryRow(
 		`SELECT
 				app_state.value
 			FROM app_state WHERE app_state.setting = ? LIMIT 1`,
+		setting,
 	)
-
-	if nil != err {
-		return "", err
-	}
-	defer stmt.Close()
 
 	var token string
 
-	if err = stmt.QueryRow(setting).Scan(&token); err != nil {
-		return "", err
+	if err := row.Scan(&token); err != nil {
+		return "", errors.Wrap(err, "could not scan setting "+setting)
 	}
 
 	return token, nil
