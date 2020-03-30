@@ -368,6 +368,10 @@ func (fr *Repository) GetCurFilesListByParent(parentId string) ([]contracts.File
 
 		if f, err = parseFileFromRow(rows); err == nil {
 			f.CurPath, f.PrevPath, err = fr.GetFileParentFolder(f.Id)
+			if sql.ErrNoRows == err {
+				// seems like the parent or the file itself was removed
+				continue
+			}
 			if err != nil {
 				return filesList, errors.Wrapf(err, "Could not get full path for file %s", f.Id)
 			}
@@ -413,10 +417,36 @@ func (fr *Repository) HasTrashedParent(id string) (bool, error) {
 	}
 }
 
-func getOneFile(stmt *sql.Stmt, args ...interface{}) (f contracts.File, err error) {
-	defer stmt.Close()
-	row := stmt.QueryRow(args...)
-	f, err = parseFileFromRow(row)
+// CleanUpDatabase cleans database from trashed files
+func (fr *Repository) CleanUpDatabase() (err error) {
+	query := `
+	DELETE
+	FROM files
+	WHERE id IN (SELECT f.id
+				 FROM files f
+						  JOIN files_parents fp on f.id = fp.file_id
+						  LEFT JOIN files fp_file on fp_file.id = fp.cur_parent_id
+				 WHERE fp_file.id IS NULL
+					OR fp_file.removed_remotely = 1
+					OR fp_file.trashed = 1
+					OR f.removed_remotely = 1
+					OR f.trashed = 1)
+	`
+	if _, err = fr.db.Exec(query); nil != err {
+		err = errors.Wrap(err, "could not remove files with removed parents")
+	}
+	query = `
+	DELETE
+	FROM files_parents
+	WHERE file_id IN (
+		SELECT fp.file_id
+		FROM files_parents fp
+				 LEFT JOIN files f ON fp.file_id = f.id
+		WHERE f.id IS NULL)
+	`
+	if _, err = fr.db.Exec(query); nil != err {
+		err = errors.Wrap(err, "could not remove files with removed parents")
+	}
 	return
 }
 

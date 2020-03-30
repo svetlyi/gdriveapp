@@ -49,8 +49,11 @@ func main() {
 
 	// now sync changes from the remote (saved in DB on the previous step) to local drive
 	tr := synchronization.New(repository, log, dbInstance, rd)
-	if err = tr.SyncRemoteWithLocal(); err != nil {
+	if err = tr.SyncRemoteWithLocal(); nil != err {
 		log.Error("SyncRemoteWithLocal error", err)
+		os.Exit(1)
+	} else if err = repository.CleanUpDatabase(); nil != err {
+		log.Error("error cleaning up database", err)
 		os.Exit(1)
 	}
 }

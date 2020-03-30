@@ -169,12 +169,13 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 
 	curFullFilePath := lfile.GetCurFullPath(file)
 	if isFolder(file) {
-		// the only things that can happen to a folder is: move, delete
-		if contracts.FILE_MOVED == remoteChangeType {
+		switch { // the only things that can happen to a folder is: move, delete
+		case contracts.FILE_MOVED == remoteChangeType:
 			return d.handleMovedRemotely(file)
-		} else if contracts.FILE_DELETED == remoteChangeType {
+		case contracts.FILE_DELETED == remoteChangeType:
 			return d.handleRemovedRemotely(file)
-		} else if contracts.FILE_UPDATED == remoteChangeType {
+		case contracts.FILE_UPDATED == remoteChangeType ||
+			(contracts.FILE_NOT_CHANGED == remoteChangeType && contracts.FILE_NOT_EXIST == localChangeType):
 			d.log.Debug("creating folder", struct {
 				name string
 			}{name: file.CurRemoteName})
