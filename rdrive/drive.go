@@ -45,19 +45,24 @@ func New(
 func (d *Drive) FillDb() error {
 	var filesChan = make(chan *drive.File)
 
-	var rootFolder = d.getRootFolder()
-	var err error
+	var rootFolder, err = d.getRootFolder()
+	if err != nil {
+		return errors.Wrap(err, "could not get root folder while filling database")
+	}
 
 	if err = d.fileRepository.SaveRootFolder(rootFolder); err != nil {
-		d.log.Error("Error saving root folder", err)
-		return err
+		return errors.Wrap(err, "Error saving root folder")
 	}
 
 	go d.getFilesList(filesChan)
 	for gfile := range filesChan {
 		if _, err = d.fileRepository.GetFileById(gfile.Id); err == nil {
-			if t, err := time.Parse(time.RFC3339, gfile.ModifiedTime); err != nil {
-				return d.fileRepository.SetCurRemoteData(gfile.Id, t, gfile.Name, gfile.Parents)
+			if t, err := time.Parse(time.RFC3339, gfile.ModifiedTime); err == nil {
+				if err = d.fileRepository.SetCurRemoteData(gfile.Id, t, gfile.Name, gfile.Parents); err != nil {
+					return errors.Wrapf(err, "could not set current remote data for file id %s", gfile.Id)
+				}
+			} else {
+				d.log.Error("wrong ModifiedTime", gfile)
 			}
 		} else if sql.ErrNoRows == errors.Cause(err) { // if gfile is a new file in the remote drive
 			d.log.Debug("creating file in db", struct {
@@ -77,6 +82,8 @@ func (d *Drive) FillDb() error {
 	return nil
 }
 
+// SaveChangesToDb gets changes since the last synchronization and
+// saves the changes to the database
 func (d *Drive) SaveChangesToDb() error {
 	var changesChan = make(chan *drive.Change)
 	var exitChan = make(contracts.ExitChan)
@@ -96,11 +103,12 @@ func (d *Drive) SaveChangesToDb() error {
 				d.log.Debug("changes:removed", struct{ id string }{id: change.FileId})
 
 				if err = d.fileRepository.SetRemovedRemotely(change.FileId); err != nil {
-					return errors.Wrap(err, "could not SetRemovedRemotely")
+					err = errors.Wrap(err, "could not SetRemovedRemotely")
+					break
 				}
 			} else {
-				if _, err = d.fileRepository.GetFileById(change.FileId); err == nil {
-					if t, err := time.Parse(time.RFC3339, change.File.ModifiedTime); err == nil {
+				if _, err = d.fileRepository.GetFileById(change.FileId); nil == err {
+					if t, err := time.Parse(time.RFC3339, change.File.ModifiedTime); nil == err {
 						d.log.Debug("changes:setting remote data", struct {
 							id   string
 							name string
@@ -109,10 +117,12 @@ func (d *Drive) SaveChangesToDb() error {
 							name: change.File.Name,
 						})
 						if err = d.fileRepository.SetCurRemoteData(change.FileId, t, change.File.Name, change.File.Parents); err != nil {
-							return errors.Wrap(err, "could not SetCurRemoteData")
+							err = errors.Wrap(err, "could not SetCurRemoteData")
+							break
 						}
 					} else {
-						return errors.Wrapf(err, "could not parse modified time %v", change.File.ModifiedTime)
+						err = errors.Wrapf(err, "could not parse modified time %v", change.File.ModifiedTime)
+						break
 					}
 				} else if sql.ErrNoRows == errors.Cause(err) { // if gfile is a new file in the remote drive
 					d.log.Debug("changes:creating a new file in db", struct {
@@ -123,19 +133,21 @@ func (d *Drive) SaveChangesToDb() error {
 						name: change.File.Name,
 					})
 					if err = d.fileRepository.CreateFile(change.File); err != nil {
-						return errors.Wrap(err, "could not CreateFile in db")
+						err = errors.Wrap(err, "could not CreateFile in db")
+						break
 					}
 				} else {
-					return errors.Wrap(err, "could not GetFileById")
+					err = errors.Wrap(err, "could not GetFileById")
+					break
 				}
 			}
 		case <-exitChan:
-			err = errors.New("saving changes to db error")
+			err = errors.New("getting changed files list error")
 		case <-time.After(10 * time.Second):
 			err = errors.New("timeout error")
 		}
 
-		if err != nil {
+		if nil != err {
 			return err
 		}
 	}

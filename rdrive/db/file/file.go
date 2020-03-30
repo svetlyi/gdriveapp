@@ -60,7 +60,7 @@ func (fr Repository) CreateFile(file *drive.File) error {
 	VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
 	`
 	insertStmt, err := fr.db.Prepare(query)
-	if err == nil {
+	if nil == err {
 		defer insertStmt.Close()
 		_, err = insertStmt.Exec(
 			file.Id,
@@ -192,125 +192,100 @@ func (fr *Repository) setPrevRemoteParentToCur(fileId string) error {
 	return err
 }
 
-func (fr *Repository) setPrevRemoteModTimeToCur(fileId string) error {
+func (fr *Repository) setPrevRemoteModTimeToCur(fileId string) (err error) {
 	query := `UPDATE files SET
 		prev_remote_modification_time = cur_remote_modification_time,
 		prev_remote_name = cur_remote_name
 		WHERE files.id = ?
 	`
-	updateStmt, err := fr.db.Prepare(query)
-	if err == nil {
-		defer updateStmt.Close()
-		_, err = updateStmt.Exec(fileId)
-	}
-	if err != nil {
+
+	if _, err = fr.db.Exec(query, fileId); nil != err {
 		err = errors.Wrapf(err, "could not update file's %s previous mod time", fileId)
 	}
-	return err
+
+	return
 }
 
-func (fr *Repository) setFileCurRemoteData(fileId string, mtime time.Time, name string) error {
+func (fr *Repository) setFileCurRemoteData(fileId string, mtime time.Time, name string) (err error) {
 	query := `UPDATE files SET 'cur_remote_modification_time' = ?, 'cur_remote_name' = ? WHERE id = ?`
-	updateStmt, err := fr.db.Prepare(query)
-	if err == nil {
-		defer updateStmt.Close()
-		_, err = updateStmt.Exec(mtime.Format(time.RFC3339), name, fileId)
-	}
-	if err != nil {
+
+	if _, err = fr.db.Exec(query, mtime.Format(time.RFC3339), name, fileId); err != nil {
 		err = errors.Wrapf(err, "could not update file's %s data", fileId)
 	}
-	return err
+	return
 }
-func (fr *Repository) setCurRemoteFileParent(fileId string, parentId string) error {
+func (fr *Repository) setCurRemoteFileParent(fileId string, parentId string) (err error) {
 	query := `UPDATE files_parents SET 'cur_parent_id' = ? WHERE file_id = ?`
-	updateStmt, err := fr.db.Prepare(query)
-	if err == nil {
-		defer updateStmt.Close()
-		_, err = updateStmt.Exec(parentId, fileId)
-	}
-	if err != nil {
+
+	if _, err := fr.db.Exec(query, parentId, fileId); err != nil {
 		err = errors.Wrapf(err, "could not update file's %s parent data", fileId)
 	}
-	return err
+
+	return
 }
 
-func (fr *Repository) SetRemovedRemotely(fileId string) error {
+func (fr *Repository) SetRemovedRemotely(fileId string) (err error) {
 	query := `UPDATE files SET 'removed_remotely' = 1 WHERE id = ?`
-	updateStmt, err := fr.db.Prepare(query)
-	if err == nil {
-		defer updateStmt.Close()
-		_, err = updateStmt.Exec(fileId)
-	}
-	if err != nil {
-		return errors.Wrap(err, "could not set removed_remotely")
+
+	if _, err = fr.db.Exec(query, fileId); err != nil {
+		err = errors.Wrapf(err, "could not set removed_remotely for id %s", fileId)
 	}
 
-	return nil
+	return
 }
 
-func (fr *Repository) Delete(fileId string) error {
+func (fr *Repository) Delete(fileId string) (err error) {
 	query := `DELETE FROM files WHERE id = ?`
-	updateStmt, err := fr.db.Prepare(query)
-	if err == nil {
-		defer updateStmt.Close()
-		_, err = updateStmt.Exec(fileId)
-	}
-	if err != nil {
-		return errors.Wrapf(err, "could not delete file %s from database", fileId)
+
+	if _, err = fr.db.Exec(query, fileId); err != nil {
+		err = errors.Wrapf(err, "could not delete file %s from database", fileId)
+	} else {
+		err = fr.deleteFromParents(fileId)
 	}
 
-	return nil
+	return
 }
 
-func (fr *Repository) SetPrevRemoteModificationDate(fileId string, date time.Time) error {
-	query := `UPDATE files SET 'prev_remote_modification_time' = ? WHERE id = ?`
-	updateStmt, err := fr.db.Prepare(query)
-	if err == nil {
-		defer updateStmt.Close()
-		_, err = updateStmt.Exec(date.Format(time.RFC3339), fileId)
+func (fr *Repository) deleteFromParents(fileId string) (err error) {
+	query := `DELETE FROM files_parents WHERE file_id = ?`
+
+	if _, err = fr.db.Exec(query, fileId); err != nil {
+		err = errors.Wrapf(err, "could not delete file %s from parents in database", fileId)
 	}
 
-	return err
+	return
+}
+
+func (fr *Repository) SetPrevRemoteModificationDate(fileId string, date time.Time) (err error) {
+	query := `UPDATE files SET 'prev_remote_modification_time' = ? WHERE id = ?`
+
+	if _, err := fr.db.Exec(query, date.Format(time.RFC3339), fileId); err != nil {
+		err = errors.Wrapf(err, "could not set prev_remote_modification_time for filId %s", fileId)
+	}
+
+	return
 }
 
 // SetDownloadTime updates download_time so that
 // after we knew if the file was downloaded and if it was changed. download_time equals
 // the last local modification time
-func (fr *Repository) SetDownloadTime(fileId string, date time.Time) error {
+func (fr *Repository) SetDownloadTime(fileId string, date time.Time) (err error) {
 	query := `UPDATE files SET 'download_time' = ? WHERE id = ?`
-	updateStmt, err := fr.db.Prepare(query)
-	if nil == err || sql.ErrNoRows == err {
-		defer updateStmt.Close()
-	}
-	if err == nil {
-		_, err = updateStmt.Exec(date.Format(time.RFC3339), fileId)
-	}
-	if err != nil {
-		err = errors.Wrap(err, "could not set download time")
+
+	if _, err := fr.db.Exec(query, date.Format(time.RFC3339), fileId); err != nil {
+		err = errors.Wrapf(err, "could not set download_time for file id %s", fileId)
 	}
 
 	return err
 }
 
-// getRootFolder gets the root folder. As in google drive everything is a file,
-// we return a file.
+// GetFileById gets a file by its id.
 func (fr *Repository) GetFileById(id string) (contracts.File, error) {
-	selectRootStmt, err := fr.db.Prepare(
+	row := fr.db.QueryRow(
 		fmt.Sprintf(`SELECT %s FROM files WHERE files.id = ? LIMIT 1`, fileSelectFields),
+		id,
 	)
-	if sql.ErrNoRows == err {
-		selectRootStmt.Close()
-	}
-
-	if nil != err {
-		fr.log.Debug("did not find file in db", struct {
-			id string
-		}{
-			id: id,
-		})
-		return contracts.File{}, err
-	}
-	return getOneFile(selectRootStmt, id)
+	return parseFileFromRow(row)
 }
 
 // GetFileParentFolder gets the path to the parent folder of the file with the provided id
@@ -353,6 +328,7 @@ func (fr *Repository) GetFileParentFolder(id string) (curPath string, prevPath s
 			  from (SELECT name
 					FROM get_cur_parents
 					order by ordi desc) gcp))
+		WHERE prevPath IS NOT NULL AND curPath IS NOT NULL
 	`
 
 	err = fr.db.QueryRow(query, id, id).Scan(&prevPath, &curPath)
@@ -411,7 +387,7 @@ func (fr *Repository) GetCurFilesListByParent(parentId string) ([]contracts.File
 
 // HasTrashedParent determines if there is a trashed parent.
 func (fr *Repository) HasTrashedParent(id string) (bool, error) {
-	stmt, err := fr.db.Prepare(
+	row := fr.db.QueryRow(
 		`WITH parents AS (
 					SELECT f.id
 					FROM files f
@@ -423,28 +399,17 @@ func (fr *Repository) HasTrashedParent(id string) (bool, error) {
 					join files_parents fp where fp.file_id = fp_cte.id
 				)
 				select 1 from parents p join files f on f.id = p.id where f.trashed = 1 limit 1;`,
+		id,
 	)
-
-	if nil == err || sql.ErrNoRows == err {
-		defer stmt.Close()
-	}
-	if nil != err {
-		fr.log.Debug("could not prepare request for trashed parent", struct {
-			id string
-		}{
-			id: id,
-		})
-		return false, err
-	}
 
 	var hasBeenChanged bool
 
-	if err := stmt.QueryRow(id).Scan(&hasBeenChanged); errors.Cause(err) == sql.ErrNoRows {
+	if err := row.Scan(&hasBeenChanged); sql.ErrNoRows == err {
 		return false, nil
 	} else if err == nil {
 		return true, nil
 	} else {
-		return false, err
+		return false, errors.Wrap(err, "could not check if has trashed parent")
 	}
 }
 

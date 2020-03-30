@@ -37,16 +37,15 @@ func main() {
 		if err = rd.FillDb(); nil != err {
 			log.Error("Synchronization error", err)
 			os.Exit(1)
-		} else {
-			log.Info("Syncing has finished", nil)
 		}
 	} else {
 		log.Info("The database already exists", nil)
-		if err := rd.SaveChangesToDb(); err != nil {
+		if err := rd.SaveChangesToDb(); nil != err {
 			log.Error("saving changes to db error", err)
 			os.Exit(1)
 		}
 	}
+	log.Info("Metadata syncing has finished", nil)
 
 	// now sync changes from the remote (saved in DB on the previous step) to local drive
 	tr := synchronization.New(repository, log, dbInstance, rd)

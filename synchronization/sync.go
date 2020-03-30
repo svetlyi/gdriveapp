@@ -19,6 +19,8 @@ func New(fr file.Repository, log contracts.Logger, db *sql.DB, rd rdrive.Drive) 
 	return Synchronizer{fr, log, db, rd}
 }
 
+// SyncRemoteWithLocal synchronize remote metadata saved in a local database
+// to the actual files saved locally
 func (s *Synchronizer) SyncRemoteWithLocal() error {
 	var filesChan = make(contracts.FilesChan)
 
@@ -52,6 +54,7 @@ func (s *Synchronizer) traverseFiles(filesChan contracts.FilesChan, sync contrac
 	root, err := s.fr.GetRootFolder()
 	if nil != err {
 		s.log.Error("Error getting root folder.", err)
+		close(filesChan)
 		return
 	}
 	root.PrevPath = root.PrevRemoteName
@@ -61,6 +64,7 @@ func (s *Synchronizer) traverseFiles(filesChan contracts.FilesChan, sync contrac
 
 	if err = s.getFilesByParent(root.Id, filesChan, sync); err != nil {
 		s.log.Error("Error getting files by parent", err)
+		close(filesChan)
 		return
 	}
 	close(filesChan)
