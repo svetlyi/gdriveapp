@@ -40,7 +40,7 @@ func (d *Drive) getFilesList(filesChan chan *drive.File) {
 		}
 		nextPageToken = fileList.NextPageToken
 
-		d.log.Info("Getting files list...", nil)
+		d.log.Info("Getting files list...")
 
 		for _, rfile := range fileList.Files {
 			d.log.Debug("Found file", rfile)
@@ -92,16 +92,16 @@ func (d *Drive) getChangedFilesList(filesChan chan *drive.Change, exitChan contr
 		}
 		nextPageToken = changeList.NextPageToken
 
-		d.log.Info("Getting changed files list...", len(changeList.Changes))
+		d.log.Info("getting changed files list. amount of changes: ", len(changeList.Changes))
 
 		for _, change := range changeList.Changes {
 			// if the file was removed, there is no any information except its identifier
 			if change.Removed {
-				d.log.Debug(fmt.Sprintf("changeList:file %s was removed", change.FileId), nil)
+				d.log.Debug(fmt.Sprintf("changeList:file %s was removed", change.FileId))
 			} else if change.File.Trashed {
-				d.log.Debug(fmt.Sprintf("changeList:file %s was trashed", change.FileId), nil)
+				d.log.Debug(fmt.Sprintf("changeList:file %s was trashed", change.FileId))
 			} else if change.File.ExplicitlyTrashed {
-				d.log.Debug(fmt.Sprintf("changeList:file %s was explicitly trashed", change.FileId), nil)
+				d.log.Debug(fmt.Sprintf("changeList:file %s was explicitly trashed", change.FileId))
 			} else {
 				d.log.Debug("changeList:found change", struct {
 					Id           string
@@ -117,7 +117,7 @@ func (d *Drive) getChangedFilesList(filesChan chan *drive.Change, exitChan contr
 		}
 
 		if "" == nextPageToken {
-			d.log.Debug("no more changes", nil)
+			d.log.Debug("no more changes")
 			break
 		}
 	}
@@ -125,7 +125,7 @@ func (d *Drive) getChangedFilesList(filesChan chan *drive.Change, exitChan contr
 		d.log.Error("error saving NextChangeToken to app state", err)
 		close(exitChan)
 	}
-	d.log.Info("changes:closing files channel", nil)
+	d.log.Info("changes:closing files channel")
 
 	close(filesChan)
 }
@@ -334,7 +334,7 @@ func (d *Drive) isChangedRemotely(file contracts.File) (contracts.FileChangeType
 
 func (d *Drive) upload(file contracts.File) error {
 	if sameFileExists, err := d.isLocalSameAsRemote(file); err == nil && sameFileExists {
-		d.log.Debug(fmt.Sprintf("skipping file %s: already exists", file.Id), nil)
+		d.log.Debug(fmt.Sprintf("skipping file %s: already exists", file.Id))
 		return d.setDownloadTimeByStats(file) // most probably it was not downloaded previously
 	} else if err != nil {
 		return err
@@ -371,7 +371,7 @@ func (d *Drive) download(file contracts.File) error {
 	fileFullPath := lfile.GetCurFullPath(file)
 
 	if sameFileExists, err := d.isLocalSameAsRemote(file); err == nil && sameFileExists {
-		d.log.Debug(fmt.Sprintf("skipping file %s: already exists", file.Id), nil)
+		d.log.Debug(fmt.Sprintf("skipping file %s: already exists", file.Id))
 		if err = d.setDownloadTimeByStats(file); err != nil {
 			return err
 		}
@@ -449,7 +449,7 @@ func (d *Drive) isLocalSameAsRemote(file contracts.File) (bool, error) {
 	}
 
 	fileHash := fmt.Sprintf("%x", h.Sum(nil))
-	d.log.Debug(fmt.Sprintf("calculated hash for %s: %s. File id: %s", fileFullPath, fileHash, file.Id), nil)
+	d.log.Debug(fmt.Sprintf("calculated hash for %s: %s. File id: %s", fileFullPath, fileHash, file.Id))
 
 	return file.Hash == fileHash, nil
 }

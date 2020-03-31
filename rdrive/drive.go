@@ -95,7 +95,7 @@ func (d *Drive) SaveChangesToDb() error {
 		select {
 		case change, ok := <-changesChan:
 			if !ok { //no more changes
-				d.log.Debug("changesChan closed", nil)
+				d.log.Debug("changesChan closed")
 				return nil
 			}
 			// we do not have a trash been here, so we mark just as removed

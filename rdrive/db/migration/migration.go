@@ -44,11 +44,11 @@ CREATE TABLE IF NOT EXISTS app_state (
 func RunMigrations(db *sql.DB, logger contracts.Logger) error {
 	for _, query := range queries {
 		if _, err := (*db).Exec(query); err != nil {
-			logger.Error(fmt.Sprintf("%q: %s\n", err, query), nil)
+			logger.Error(fmt.Sprintf("%q: %s\n", err, query))
 			return err
 		}
 	}
-	logger.Info("Migrated successfully", nil)
+	logger.Info("Migrated successfully")
 
 	return nil
 }

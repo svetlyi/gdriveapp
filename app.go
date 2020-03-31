@@ -21,7 +21,7 @@ func main() {
 	srv, err := drive.NewService(context.Background(), option.WithTokenSource(auth.GetTokenSource()))
 	log := logger.New()
 	if err != nil {
-		log.Error("Unable to retrieve Drive client: %v", err)
+		log.Error("unable to retrieve Drive client: %v", err)
 		os.Exit(1)
 	}
 
@@ -35,25 +35,28 @@ func main() {
 	rd := rdrive.New(*srv.Files, *srv.Changes, repository, log, app.New(dbInstance, log))
 	if errors.Cause(err) == sql.ErrNoRows {
 		if err = rd.FillDb(); nil != err {
-			log.Error("Synchronization error", err)
+			log.Error("synchronization error", err)
 			os.Exit(1)
 		}
 	} else {
-		log.Info("The database already exists", nil)
+		log.Info("the database already exists")
 		if err := rd.SaveChangesToDb(); nil != err {
 			log.Error("saving changes to db error", err)
 			os.Exit(1)
 		}
 	}
-	log.Info("Metadata syncing has finished", nil)
+	log.Info("metadata syncing has finished")
 
 	// now sync changes from the remote (saved in DB on the previous step) to local drive
 	tr := synchronization.New(repository, log, dbInstance, rd)
 	if err = tr.SyncRemoteWithLocal(); nil != err {
 		log.Error("SyncRemoteWithLocal error", err)
 		os.Exit(1)
-	} else if err = repository.CleanUpDatabase(); nil != err {
+	}
+	log.Info("successfully synchronized")
+	if err = repository.CleanUpDatabase(); nil != err {
 		log.Error("error cleaning up database", err)
 		os.Exit(1)
 	}
+	log.Info("cleaned database")
 }
