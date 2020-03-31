@@ -3,6 +3,7 @@ package auth
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/svetlyi/gdriveapp/config"
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -10,25 +11,26 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 )
 
-// Retrieve a token, saves the token, then returns the generated client.
+// GetTokenSource retrieves a token, saves the token, then returns the generated client.
 func GetTokenSource() oauth2.TokenSource {
 	// The file token.json stores the user's access and refresh tokens, and is
 	// created automatically when the authorization flow completes for the first
 	// time.
-	tokFile := "token.json"
+	tokFile := filepath.Join(config.ConfigPath, "token.json")
 	tok, err := tokenFromFile(tokFile)
-	config := readConfig()
+	cfg := readConfig()
 	if err != nil {
-		tok = getTokenFromWeb(config)
+		tok = getTokenFromWeb(cfg)
 		saveToken(tokFile, tok)
 	}
-	return config.TokenSource(context.Background(), tok)
+	return cfg.TokenSource(context.Background(), tok)
 }
 
 func readConfig() *oauth2.Config {
-	b, err := ioutil.ReadFile("credentials.json")
+	b, err := ioutil.ReadFile(filepath.Join(config.ConfigPath, "credentials.json"))
 	if err != nil {
 		log.Fatalf("Unable to read client secret file: %v", err)
 	}
@@ -42,7 +44,7 @@ func readConfig() *oauth2.Config {
 	return config
 }
 
-// Request a token from the web, then returns the retrieved token.
+// getTokenFromWeb requests a token from the web, then returns the retrieved token.
 func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
 	fmt.Printf("Go to the following link in your browser then type the "+
@@ -60,7 +62,7 @@ func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 	return tok
 }
 
-// Retrieves a token from a local file.
+// tokenFromFile retrieves a token from a local file.
 func tokenFromFile(file string) (*oauth2.Token, error) {
 	f, err := os.Open(file)
 	if err != nil {
@@ -72,7 +74,7 @@ func tokenFromFile(file string) (*oauth2.Token, error) {
 	return tok, err
 }
 
-// Saves a token to a file path.
+// saveToken saves a token to a file path.
 func saveToken(path string, token *oauth2.Token) {
 	fmt.Printf("Saving credential file to: %s\n", path)
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
