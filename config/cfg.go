@@ -5,28 +5,37 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strings"
 )
 
 var (
+	AppName               = "svetlyi_gdriveapp"
 	ConfigPath            = ""
 	DBPath                = ""
 	PageSizeToQuery int64 = 300
-	DrivePath             = "/media/photon/371F40450619A640/"
+	DrivePath             = ""
+	LogFileMaxSize  int64 = 1e7
 )
 
 func init() {
-	// TODO: change the logic (temporary)
-	if usr, err := user.Current(); nil == err {
-		if confDir, err := os.UserConfigDir(); nil == err {
-			ConfigPath = filepath.Join(confDir, "gdriveapp")
-			DBPath = filepath.Join(ConfigPath, "sync.db")
-			if "" == DrivePath {
-				DrivePath = usr.HomeDir
-			}
+	usr, err := user.Current()
+	if nil != err {
+		log.Fatal("could not get current user info", err)
+	}
+	confDir, err := os.UserConfigDir()
+	if nil != err {
+		log.Fatal("could not get current user's config dir", err)
+	}
+
+	ConfigPath = filepath.Join(confDir, AppName)
+	DBPath = filepath.Join(ConfigPath, "sync.db")
+
+	if "" == DrivePath {
+		DrivePathEnv := os.Getenv(strings.ToUpper(AppName) + "_DRIVE_PATH")
+		if "" == DrivePathEnv {
+			DrivePath = usr.HomeDir
 		} else {
-			log.Fatal(err)
+			DrivePath = DrivePathEnv
 		}
-	} else {
-		log.Fatal(err)
 	}
 }

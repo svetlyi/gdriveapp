@@ -102,23 +102,22 @@ func (fr Repository) SaveRootFolder(file *drive.File) error {
 	)
 	VALUES (?,?,?,?,?,?,?,?,?,?)
 	`
-	insertStmt, err := fr.db.Prepare(query)
-	if err == nil {
-		defer insertStmt.Close()
-		_, err = insertStmt.Exec(
-			file.Id,
-			file.Name,
-			file.Name,
-			file.Md5Checksum,
-			file.MimeType,
-			file.Shared,
-			1,
-			file.Size,
-			0,
-			0,
-		)
+	_, err := fr.db.Exec(
+		query,
+		file.Id,
+		file.Name,
+		file.Name,
+		file.Md5Checksum,
+		file.MimeType,
+		file.Shared,
+		1,
+		file.Size,
+		0,
+		0,
+	)
+	if nil != err {
+		err = errors.Wrap(err, "error while inserting root folder")
 	}
-
 	return err
 }
 

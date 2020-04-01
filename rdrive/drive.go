@@ -51,7 +51,7 @@ func (d *Drive) FillDb() error {
 	}
 
 	if err = d.fileRepository.SaveRootFolder(rootFolder); err != nil {
-		return errors.Wrap(err, "Error saving root folder")
+		return errors.Wrap(err, "error saving root folder")
 	}
 
 	go d.getFilesList(filesChan)
