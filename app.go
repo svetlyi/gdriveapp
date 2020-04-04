@@ -2,7 +2,11 @@ package main
 
 import (
 	"database/sql"
+	_ "database/sql"
+	"fmt"
+	_ "fmt"
 	"github.com/pkg/errors"
+	_ "github.com/pkg/errors"
 	"github.com/svetlyi/gdriveapp/app"
 	"github.com/svetlyi/gdriveapp/config"
 	"github.com/svetlyi/gdriveapp/logger"
@@ -15,6 +19,8 @@ import (
 	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/option"
 	"os"
+	"path/filepath"
+	_ "path/filepath"
 )
 
 func main() {
@@ -31,32 +37,61 @@ func main() {
 	repository := file.NewRepository(dbInstance, log)
 
 	// first sync changes in the remote drive
-	_, err = repository.GetRootFolder()
+	rootFolder, err := repository.GetRootFolder()
 	rd := rdrive.New(*srv.Files, *srv.Changes, repository, log, app.New(dbInstance, log))
-	if errors.Cause(err) == sql.ErrNoRows {
-		if err = rd.FillDb(); nil != err {
-			log.Error("synchronization error", err)
-			os.Exit(1)
-		}
-	} else {
-		log.Info("the database already exists")
-		if err := rd.SaveChangesToDb(); nil != err {
-			log.Error("saving changes to db error", err)
-			os.Exit(1)
-		}
-	}
+	//if errors.Cause(err) == sql.ErrNoRows {
+	//	if err = rd.FillDb(); nil != err {
+	//		log.Error("synchronization error", err)
+	//		os.Exit(1)
+	//	}
+	//} else {
+	//	log.Info("the database already exists")
+	//	if err := rd.SaveChangesToDb(); nil != err {
+	//		log.Error("saving changes to db error", err)
+	//		os.Exit(1)
+	//	}
+	//}
 	log.Info("metadata syncing has finished")
 
-	// now sync changes from the remote (saved in DB on the previous step) to local drive
-	tr := synchronization.New(repository, log, dbInstance, rd)
-	if err = tr.SyncRemoteWithLocal(); nil != err {
-		log.Error("SyncRemoteWithLocal error", err)
+	//// now sync changes from the remote (saved in DB on the previous step) to local drive
+	synchronizer := synchronization.New(repository, log, dbInstance, rd)
+	//if err = synchronizer.SyncRemoteWithLocal(); nil != err {
+	//	log.Error("SyncRemoteWithLocal error", err)
+	//	os.Exit(1)
+	//}
+	//log.Info("successfully synchronized")
+	//if err = repository.CleanUpDatabase(); nil != err {
+	//	log.Error("error cleaning up database", err)
+	//	os.Exit(1)
+	//}
+	//log.Info("cleaned database")
+
+	var parentId string
+	deletedFolders, err := repository.GetDeletedFoldersIds()
+	if nil != err {
+		log.Error(err)
 		os.Exit(1)
 	}
-	log.Info("successfully synchronized")
-	if err = repository.CleanUpDatabase(); nil != err {
-		log.Error("error cleaning up database", err)
-		os.Exit(1)
-	}
-	log.Info("cleaned database")
+	filepath.Walk(
+		filepath.Join(config.DrivePath, rootFolder.CurRemoteName),
+		func(path string, info os.FileInfo, err error) error {
+			fmt.Println(path)
+			curFilePath := path[len(config.DrivePath):]
+			fileId, err := repository.GetFileIdByCurPath(curFilePath, rootFolder)
+			if sql.ErrNoRows == errors.Cause(err) {
+				if info.IsDir() {
+					for _, deletedFolder := range deletedFolders {
+						if same, err := synchronizer.AreFoldersTheSame(path, deletedFolder); (nil == err) && same {
+							fmt.Println(curFilePath, "moved from", deletedFolder)
+						}
+					}
+				}
+				fmt.Println("creating", curFilePath, "in", parentId)
+			}
+			if info.IsDir() {
+				parentId = fileId
+			}
+			return nil
+		},
+	)
 }

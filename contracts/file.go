@@ -1,6 +1,9 @@
 package contracts
 
-import "time"
+import (
+	"os"
+	"time"
+)
 
 type File struct {
 	Id             string
@@ -43,3 +46,8 @@ const (
 	FILE_ERROR       FileChangeType = "error"
 	FILE_MOVED       FileChangeType = "moved"
 )
+
+type ExtendedFileInfo struct {
+	FileInfo os.FileInfo
+	FullPath string
+}

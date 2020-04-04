@@ -6,7 +6,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/svetlyi/gdriveapp/contracts"
 	"google.golang.org/api/drive/v3"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -59,27 +61,23 @@ func (fr Repository) CreateFile(file *drive.File) error {
 	)
 	VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
 	`
-	insertStmt, err := fr.db.Prepare(query)
+	_, err := fr.db.Exec(
+		query,
+		file.Id,
+		file.Name,
+		file.Name,
+		file.Md5Checksum,
+		file.ModifiedTime,
+		file.ModifiedTime,
+		file.MimeType,
+		file.Shared,
+		0,
+		file.Size,
+		file.Trashed,
+		0,
+	)
 	if nil == err {
-		defer insertStmt.Close()
-		_, err = insertStmt.Exec(
-			file.Id,
-			file.Name,
-			file.Name,
-			file.Md5Checksum,
-			file.ModifiedTime,
-			file.ModifiedTime,
-			file.MimeType,
-			file.Shared,
-			0,
-			file.Size,
-			file.Trashed,
-			0,
-		)
-		if err == nil {
-			err = fr.linkWithParents(file)
-		}
-		return err
+		err = fr.linkWithParents(file)
 	}
 
 	return err
@@ -128,15 +126,10 @@ func (fr *Repository) linkWithParents(file *drive.File) error {
 	if len(file.Parents) == 0 {
 		return nil
 	}
-	insertStmt, err := fr.db.Prepare(
-		`INSERT INTO 
+	query := `INSERT INTO 
 				files_parents('file_id', 'prev_parent_id', 'cur_parent_id') 
-				VALUES (?, ?, ?)`,
-	)
-	if err == nil {
-		defer insertStmt.Close()
-		_, err = insertStmt.Exec(file.Id, file.Parents[0], file.Parents[0])
-	}
+				VALUES (?, ?, ?)`
+	_, err := fr.db.Exec(query, file.Id, file.Parents[0], file.Parents[0])
 
 	return err
 }
@@ -180,11 +173,7 @@ func (fr *Repository) SetPrevRemoteDataToCur(fileId string) error {
 
 func (fr *Repository) setPrevRemoteParentToCur(fileId string) error {
 	query := `UPDATE files_parents SET prev_parent_id = cur_parent_id WHERE files_parents.file_id = ?`
-	updateStmt, err := fr.db.Prepare(query)
-	if err == nil {
-		defer updateStmt.Close()
-		_, err = updateStmt.Exec(fileId)
-	}
+	_, err := fr.db.Exec(query, fileId)
 	if err != nil {
 		err = errors.Wrapf(err, "could not update file's %s previous mod time", fileId)
 	}
@@ -228,6 +217,16 @@ func (fr *Repository) SetRemovedRemotely(fileId string) (err error) {
 
 	if _, err = fr.db.Exec(query, fileId); err != nil {
 		err = errors.Wrapf(err, "could not set removed_remotely for id %s", fileId)
+	}
+
+	return
+}
+
+func (fr *Repository) SetRemovedLocally(fileId string) (err error) {
+	query := `UPDATE files SET 'removed_locally' = 1 WHERE id = ?`
+
+	if _, err = fr.db.Exec(query, fileId); err != nil {
+		err = errors.Wrapf(err, "could not set removed_locally for id %s", fileId)
 	}
 
 	return
@@ -287,8 +286,8 @@ func (fr *Repository) GetFileById(id string) (contracts.File, error) {
 	return parseFileFromRow(row)
 }
 
-// GetFileParentFolder gets the path to the parent folder of the file with the provided id
-func (fr *Repository) GetFileParentFolder(id string) (curPath string, prevPath string, err error) {
+// GetFileParentFolderPath gets the path to the parent folder of the file with the provided id
+func (fr *Repository) GetFileParentFolderPath(id string) (curPath string, prevPath string, err error) {
 	query := `
 		WITH get_prev_parents (ordi, parent_id, name) AS (
 			SELECT 0, fp.prev_parent_id, f_parent.prev_remote_name
@@ -333,9 +332,41 @@ func (fr *Repository) GetFileParentFolder(id string) (curPath string, prevPath s
 	err = fr.db.QueryRow(query, id, id).Scan(&prevPath, &curPath)
 
 	if nil != err && sql.ErrNoRows != err {
-		err = errors.Wrap(err, "could not get GetFileParentFolder")
+		err = errors.Wrap(err, "could not get GetFileParentFolderPath")
 	}
 	return
+}
+
+func (fr *Repository) GetDeletedFoldersIds() ([]string, error) {
+	var ids []string
+
+	fr.log.Debug("getting deleted folders")
+	rows, err := fr.db.Query(`
+			SELECT files.id
+			FROM files 
+			WHERE files.removed_locally = 1 AND files.mime_type = ?
+			ORDER BY files.cur_remote_name
+		`,
+		"application/vnd.google-apps.folder",
+	)
+
+	if nil != err {
+		return ids, errors.Wrap(err, "error querying deleted folders.")
+	}
+	defer rows.Close()
+	var curId string
+
+	for rows.Next() {
+		if err := rows.Scan(&curId); nil == err {
+			ids = append(ids, curId)
+		} else if sql.ErrNoRows == err {
+			break
+		} else {
+			return ids, errors.Wrap(err, "could not scan folder id")
+		}
+	}
+
+	return ids, nil
 }
 
 func (fr *Repository) GetCurFilesListByParent(parentId string) ([]contracts.File, error) {
@@ -351,7 +382,9 @@ func (fr *Repository) GetCurFilesListByParent(parentId string) ([]contracts.File
 			SELECT %s
 			FROM files 
 			JOIN files_parents fp ON files.id = fp.file_id 
-			WHERE fp.cur_parent_id=?`,
+			WHERE fp.cur_parent_id=?
+			ORDER BY files.cur_remote_name
+		`,
 			fileSelectFields,
 		),
 		parentId,
@@ -366,7 +399,7 @@ func (fr *Repository) GetCurFilesListByParent(parentId string) ([]contracts.File
 		var f contracts.File
 
 		if f, err = parseFileFromRow(rows); err == nil {
-			f.CurPath, f.PrevPath, err = fr.GetFileParentFolder(f.Id)
+			f.CurPath, f.PrevPath, err = fr.GetFileParentFolderPath(f.Id)
 			if sql.ErrNoRows == err {
 				// seems like the parent or the file itself was removed
 				continue
@@ -447,6 +480,52 @@ func (fr *Repository) CleanUpDatabase() (err error) {
 		err = errors.Wrap(err, "could not remove files with removed parents")
 	}
 	return
+}
+
+// GetFileIdByCurPath gets file's id by its path and name.
+func (fr *Repository) GetFileIdByCurPath(fullPath string, lookInFolder contracts.File) (string, error) {
+	pathSlice := strings.Split(fullPath, string(os.PathSeparator))
+	upperParentName := pathSlice[0]
+	if len(pathSlice) == 1 {
+		if lookInFolder.CurRemoteName == upperParentName {
+			return lookInFolder.Id, nil
+		} else {
+			return "", sql.ErrNoRows
+		}
+	} else {
+		if fileId, err := fr.GetFileIdByPathSlice(pathSlice[1:], lookInFolder.Id); sql.ErrNoRows == errors.Cause(err) {
+			return "", errors.Wrapf(err, "could not find file id with name %s in %s", upperParentName, fullPath)
+		} else {
+			return fileId, err
+		}
+	}
+}
+
+// GetFileIdByCurPath gets file's id by its path and name.
+func (fr *Repository) GetFileIdByPathSlice(lookForPath []string, lookInParentId string) (string, error) {
+	lookForName := lookForPath[0]
+	query := `
+		SELECT f.id
+		FROM files f
+		LEFT JOIN files_parents fp ON f.id = fp.file_id
+		WHERE
+		  f.cur_remote_name = ?
+		  AND fp.cur_parent_id = ?
+	`
+	row := fr.db.QueryRow(query, lookForName, lookInParentId)
+
+	var fileId string
+	if err := row.Scan(&fileId); nil == err {
+		if len(lookForPath) == 1 {
+			return fileId, nil
+		} else {
+			return fr.GetFileIdByPathSlice(lookForPath[1:], fileId)
+		}
+	} else if sql.ErrNoRows == err {
+		return "", errors.Wrapf(err, "could not find file id with name %s", lookForName)
+	} else {
+		return "", errors.Wrap(err, "could not scan file id")
+	}
 }
 
 func parseFileFromRow(row contracts.RowScanner) (f contracts.File, err error) {

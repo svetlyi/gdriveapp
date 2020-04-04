@@ -1,7 +1,6 @@
 package rdrive
 
 import (
-	"crypto/md5"
 	"database/sql"
 	"fmt"
 	"github.com/pkg/errors"
@@ -9,6 +8,7 @@ import (
 	"github.com/svetlyi/gdriveapp/config"
 	"github.com/svetlyi/gdriveapp/contracts"
 	lfile "github.com/svetlyi/gdriveapp/ldrive/file"
+	lfileHash "github.com/svetlyi/gdriveapp/ldrive/file/hash"
 	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/googleapi"
 	"io"
@@ -182,6 +182,9 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 			if err := os.Mkdir(curFullFilePath, 0644); !os.IsExist(err) {
 				return errors.Wrap(err, "could not create dir")
 			}
+			if err := d.fileRepository.SetPrevRemoteDataToCur(file.Id); nil != err {
+				return errors.Wrap(err, "could not set previous remote data to current")
+			}
 		}
 	}
 	if !canDownloadFile(file) {
@@ -206,7 +209,7 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 		}
 	case contracts.FILE_NOT_CHANGED == remoteChangeType && contracts.FILE_DELETED == localChangeType:
 		d.log.Debug("deleting file remotely. remote file has not changed. local one deleted", file)
-		if err = d.delete(file); err != nil {
+		if err = d.fileRepository.SetRemovedLocally(file.Id); err != nil {
 			err = errors.Wrapf(err, "could not delete file %s", file.Id)
 		}
 	case contracts.FILE_UPDATED == remoteChangeType && contracts.FILE_NOT_CHANGED == localChangeType:
@@ -224,7 +227,7 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 	case contracts.FILE_DELETED == remoteChangeType && contracts.FILE_UPDATED == localChangeType:
 		break //TODO: conflict
 	case contracts.FILE_DELETED == remoteChangeType && contracts.FILE_DELETED == localChangeType:
-		err = d.fileRepository.Delete(file.Id)
+		err = d.fileRepository.SetRemovedLocally(file.Id)
 	case contracts.FILE_MOVED == remoteChangeType && contracts.FILE_NOT_CHANGED == localChangeType:
 		err = d.handleMovedRemotely(file)
 	case contracts.FILE_MOVED == remoteChangeType && contracts.FILE_UPDATED == localChangeType:
@@ -425,7 +428,7 @@ func (d *Drive) download(file contracts.File) error {
 // or the downloaded time in the database is null
 func (d *Drive) isLocalSameAsRemote(file contracts.File) (bool, error) {
 	fileFullPath := lfile.GetCurFullPath(file)
-	f, err := os.Open(fileFullPath)
+	stat, err := os.Stat(fileFullPath)
 
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -434,24 +437,17 @@ func (d *Drive) isLocalSameAsRemote(file contracts.File) (bool, error) {
 			return false, errors.Wrapf(err, "could not check if the file %s exists", fileFullPath)
 		}
 	}
-	defer f.Close()
-	if stat, err := f.Stat(); nil == err {
-		if stat.IsDir() {
-			return true, nil
-		}
-	} else {
+
+	if stat.IsDir() {
+		return true, nil
+	}
+
+	if hash, err := lfileHash.CalcCachedHash(fileFullPath); nil != err {
 		return false, err
+	} else {
+		d.log.Debug(fmt.Sprintf("calculated hash for %s: %s. File id: %s", fileFullPath, hash, file.Id))
+		return file.Hash == hash, nil
 	}
-
-	h := md5.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return false, errors.Wrapf(err, "could not get the file's %s hash", fileFullPath)
-	}
-
-	fileHash := fmt.Sprintf("%x", h.Sum(nil))
-	d.log.Debug(fmt.Sprintf("calculated hash for %s: %s. File id: %s", fileFullPath, fileHash, file.Id))
-
-	return file.Hash == fileHash, nil
 }
 
 func (d *Drive) setDownloadTimeByStats(file contracts.File) error {
