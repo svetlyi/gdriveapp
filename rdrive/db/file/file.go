@@ -144,15 +144,19 @@ func (fr *Repository) GetRootFolder() (contracts.File, error) {
 }
 
 // SetCurRemoteData updates cur_remote_modification_time and other data so that
-// after we could check if it was changed remotely
-func (fr *Repository) SetCurRemoteData(fileId string, mtime time.Time, name string, parents []string) error {
+// after we could check if it was changed remotely. mtime is in RFC3339 format
+func (fr *Repository) SetCurRemoteData(fileId string, mtime string, name string, parents []string) error {
 	if len(parents) > 1 {
 		return errors.New("there is no support for multiple parents yet")
 	} else if len(parents) == 0 {
 		return nil
 	}
+	mtimeParsed, err := time.Parse(time.RFC3339, mtime)
+	if nil != err {
+		return errors.Wrapf(err, "wrong ModifiedTime %s", mtime)
+	}
 
-	if err := fr.setFileCurRemoteData(fileId, mtime, name); err != nil {
+	if err := fr.setFileCurRemoteData(fileId, mtimeParsed, name); err != nil {
 		return err
 	}
 	if err := fr.setCurRemoteFileParent(fileId, parents[0]); err != nil {
@@ -222,10 +226,14 @@ func (fr *Repository) SetRemovedRemotely(fileId string) (err error) {
 	return
 }
 
-func (fr *Repository) SetRemovedLocally(fileId string) (err error) {
-	query := `UPDATE files SET 'removed_locally' = 1 WHERE id = ?`
+func (fr *Repository) SetRemovedLocally(fileId string, removed bool) (err error) {
+	query := `UPDATE files SET 'removed_locally' = ? WHERE id = ?`
 
-	if _, err = fr.db.Exec(query, fileId); err != nil {
+	var removedArg int8
+	if removed {
+		removedArg = 1
+	}
+	if _, err = fr.db.Exec(query, fileId, removedArg); err != nil {
 		err = errors.Wrapf(err, "could not set removed_locally for id %s", fileId)
 	}
 
@@ -286,6 +294,15 @@ func (fr *Repository) GetFileById(id string) (contracts.File, error) {
 	return parseFileFromRow(row)
 }
 
+// GetFileByHash gets a file by its hash.
+func (fr *Repository) GetFileByHash(hash string) (contracts.File, error) {
+	row := fr.db.QueryRow(
+		fmt.Sprintf(`SELECT %s FROM files WHERE files.hash = ? LIMIT 1`, fileSelectFields),
+		hash,
+	)
+	return parseFileFromRow(row)
+}
+
 // GetFileParentFolderPath gets the path to the parent folder of the file with the provided id
 func (fr *Repository) GetFileParentFolderPath(id string) (curPath string, prevPath string, err error) {
 	query := `
@@ -337,7 +354,7 @@ func (fr *Repository) GetFileParentFolderPath(id string) (curPath string, prevPa
 	return
 }
 
-func (fr *Repository) GetDeletedFoldersIds() ([]string, error) {
+func (fr *Repository) GetLocallyRemovedFoldersIds() ([]string, error) {
 	var ids []string
 
 	fr.log.Debug("getting deleted folders")
@@ -482,18 +499,46 @@ func (fr *Repository) CleanUpDatabase() (err error) {
 	return
 }
 
-// GetFileIdByCurPath gets file's id by its path and name.
-func (fr *Repository) GetFileIdByCurPath(fullPath string, lookInFolder contracts.File) (string, error) {
+func (fr *Repository) GetParentIdByChildId(childId string) (string, error) {
+	query := `
+		SELECT fp.cur_parent_id
+		FROM files f
+		JOIN files_parents fp ON f.id = fp.file_id
+		WHERE
+		f.id = ?
+	`
+	row := fr.db.QueryRow(query, childId)
+
+	var fileId string
+	if err := row.Scan(&fileId); nil == err {
+		return fileId, nil
+	} else if sql.ErrNoRows == err {
+		return "", errors.Wrapf(err, "could not find cur_parent_id for file id %s", childId)
+	} else {
+		return "", errors.Wrap(err, "could not scan parent file id")
+	}
+}
+
+// GetFileParentIdByCurPath gets file's parent id by its path
+func (fr *Repository) GetFileParentIdByCurPath(fullPath string, startWithFolder contracts.File) (string, error) {
+	pathSlice := strings.Split(fullPath, string(os.PathSeparator))
+	pathSlice = pathSlice[:len(pathSlice)-1]
+
+	return fr.GetFileIdByCurPath(strings.Join(pathSlice, string(os.PathSeparator)), startWithFolder)
+}
+
+// GetFileIdByCurPath gets file's id by its path.
+func (fr *Repository) GetFileIdByCurPath(fullPath string, startWithFolder contracts.File) (string, error) {
 	pathSlice := strings.Split(fullPath, string(os.PathSeparator))
 	upperParentName := pathSlice[0]
 	if len(pathSlice) == 1 {
-		if lookInFolder.CurRemoteName == upperParentName {
-			return lookInFolder.Id, nil
+		if startWithFolder.CurRemoteName == upperParentName {
+			return startWithFolder.Id, nil
 		} else {
 			return "", sql.ErrNoRows
 		}
 	} else {
-		if fileId, err := fr.GetFileIdByPathSlice(pathSlice[1:], lookInFolder.Id); sql.ErrNoRows == errors.Cause(err) {
+		if fileId, err := fr.GetFileIdByPathSlice(pathSlice[1:], startWithFolder.Id); sql.ErrNoRows == errors.Cause(err) {
 			return "", errors.Wrapf(err, "could not find file id with name %s in %s", upperParentName, fullPath)
 		} else {
 			return fileId, err

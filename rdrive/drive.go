@@ -57,12 +57,8 @@ func (d *Drive) FillDb() error {
 	go d.getFilesList(filesChan)
 	for gfile := range filesChan {
 		if _, err = d.fileRepository.GetFileById(gfile.Id); err == nil {
-			if t, err := time.Parse(time.RFC3339, gfile.ModifiedTime); err == nil {
-				if err = d.fileRepository.SetCurRemoteData(gfile.Id, t, gfile.Name, gfile.Parents); err != nil {
-					return errors.Wrapf(err, "could not set current remote data for file id %s", gfile.Id)
-				}
-			} else {
-				d.log.Error("wrong ModifiedTime", gfile)
+			if err = d.fileRepository.SetCurRemoteData(gfile.Id, gfile.ModifiedTime, gfile.Name, gfile.Parents); err != nil {
+				return errors.Wrapf(err, "could not set current remote data for file id %s", gfile.Id)
 			}
 		} else if sql.ErrNoRows == errors.Cause(err) { // if gfile is a new file in the remote drive
 			d.log.Debug("creating file in db", struct {
@@ -108,20 +104,15 @@ func (d *Drive) SaveChangesToDb() error {
 				}
 			} else {
 				if _, err = d.fileRepository.GetFileById(change.FileId); nil == err {
-					if t, err := time.Parse(time.RFC3339, change.File.ModifiedTime); nil == err {
-						d.log.Debug("changes:setting remote data", struct {
-							id   string
-							name string
-						}{
-							id:   change.FileId,
-							name: change.File.Name,
-						})
-						if err = d.fileRepository.SetCurRemoteData(change.FileId, t, change.File.Name, change.File.Parents); err != nil {
-							err = errors.Wrap(err, "could not SetCurRemoteData")
-							break
-						}
-					} else {
-						err = errors.Wrapf(err, "could not parse modified time %v", change.File.ModifiedTime)
+					d.log.Debug("changes:setting remote data", struct {
+						id   string
+						name string
+					}{
+						id:   change.FileId,
+						name: change.File.Name,
+					})
+					if err = d.fileRepository.SetCurRemoteData(change.FileId, change.File.ModifiedTime, change.File.Name, change.File.Parents); err != nil {
+						err = errors.Wrap(err, "could not SetCurRemoteData")
 						break
 					}
 				} else if sql.ErrNoRows == errors.Cause(err) { // if gfile is a new file in the remote drive

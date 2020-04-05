@@ -199,17 +199,17 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 		}
 	case contracts.FILE_NOT_CHANGED == remoteChangeType && contracts.FILE_NOT_CHANGED == localChangeType:
 		if file.DownloadTime.IsZero() {
-			err = d.setDownloadTimeByStats(file)
+			err = d.setDownloadTimeByStatsForFile(file)
 		}
 		break // do nothing
 	case contracts.FILE_NOT_CHANGED == remoteChangeType && contracts.FILE_UPDATED == localChangeType:
 		d.log.Debug("uploading file. remote file has not changed. local one updated", file)
-		if err = d.upload(file); err != nil {
-			err = errors.Wrapf(err, "could not upload file %s", file.Id)
+		if err = d.updateRemote(file); err != nil {
+			err = errors.Wrapf(err, "could not updateRemote file %s", file.Id)
 		}
 	case contracts.FILE_NOT_CHANGED == remoteChangeType && contracts.FILE_DELETED == localChangeType:
 		d.log.Debug("deleting file remotely. remote file has not changed. local one deleted", file)
-		if err = d.fileRepository.SetRemovedLocally(file.Id); err != nil {
+		if err = d.fileRepository.SetRemovedLocally(file.Id, true); err != nil {
 			err = errors.Wrapf(err, "could not delete file %s", file.Id)
 		}
 	case contracts.FILE_UPDATED == remoteChangeType && contracts.FILE_NOT_CHANGED == localChangeType:
@@ -227,7 +227,7 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 	case contracts.FILE_DELETED == remoteChangeType && contracts.FILE_UPDATED == localChangeType:
 		break //TODO: conflict
 	case contracts.FILE_DELETED == remoteChangeType && contracts.FILE_DELETED == localChangeType:
-		err = d.fileRepository.SetRemovedLocally(file.Id)
+		err = d.fileRepository.SetRemovedLocally(file.Id, true)
 	case contracts.FILE_MOVED == remoteChangeType && contracts.FILE_NOT_CHANGED == localChangeType:
 		err = d.handleMovedRemotely(file)
 	case contracts.FILE_MOVED == remoteChangeType && contracts.FILE_UPDATED == localChangeType:
@@ -275,7 +275,7 @@ func (d *Drive) handleMovedRemotely(file contracts.File) (err error) {
 		err = d.fileRepository.SetPrevRemoteDataToCur(file.Id)
 	}
 	if err != nil {
-		err = d.setDownloadTimeByStats(file)
+		err = d.setDownloadTimeByStatsForFile(file)
 	}
 
 	return err
@@ -335,10 +335,10 @@ func (d *Drive) isChangedRemotely(file contracts.File) (contracts.FileChangeType
 	return contracts.FILE_NOT_CHANGED, nil
 }
 
-func (d *Drive) upload(file contracts.File) error {
+func (d *Drive) updateRemote(file contracts.File) error {
 	if sameFileExists, err := d.isLocalSameAsRemote(file); err == nil && sameFileExists {
 		d.log.Debug(fmt.Sprintf("skipping file %s: already exists", file.Id))
-		return d.setDownloadTimeByStats(file) // most probably it was not downloaded previously
+		return d.setDownloadTimeByStatsForFile(file) // most probably it was not downloaded previously
 	} else if err != nil {
 		return err
 	}
@@ -359,6 +359,58 @@ func (d *Drive) upload(file contracts.File) error {
 	}
 }
 
+func (d *Drive) Upload(curFullPath string, parentIds []string) error {
+	fileHash, err := lfileHash.CalcCachedHash(curFullPath)
+	if nil != err {
+		return errors.Wrapf(err, "could not calculate hash for %s", curFullPath)
+	}
+	sameFile, err := d.fileRepository.GetFileByHash(fileHash)
+	if nil != err && sql.ErrNoRows != errors.Cause(err) {
+		return errors.Wrapf(err, "error finding a file %s by hash %s", curFullPath, fileHash)
+	}
+	stat, err := os.Stat(curFullPath)
+	if nil != err {
+		return errors.Wrapf(err, "could not get stat for file %s", curFullPath)
+	}
+	var rf *drive.File
+	if sql.ErrNoRows == errors.Cause(err) || sameFile.SizeBytes != uint64(stat.Size()) {
+		// if there is no such a file, then just upload
+		lf, err := os.Open(curFullPath)
+		if nil != err {
+			return errors.Wrapf(err, "error opening file %s", curFullPath)
+		}
+		defer lf.Close()
+
+		rf, err = d.filesService.
+			Create(&drive.File{Name: stat.Name(), Parents: parentIds}).
+			Fields(googleapi.Field(fileFieldsSet)).
+			Media(lf).Do()
+		if nil != err {
+			return errors.Wrapf(err, "could not upload file %s", curFullPath)
+		}
+	} else {
+		rf, err = d.filesService.
+			Copy(sameFile.Id, &drive.File{Name: stat.Name(), Parents: parentIds}).
+			Fields(googleapi.Field(fileFieldsSet)).
+			Do()
+	}
+	err = d.fileRepository.CreateFile(rf)
+	if nil != err {
+		return errors.Wrapf(err, "could not create file %s in db", curFullPath)
+	}
+	return nil
+}
+
+func (d *Drive) Update(fileId string, name string, parentIds []string, oldParentIds []string) (*drive.File, error) {
+	f, err := d.filesService.Update(fileId, &drive.File{
+		Name: name,
+	}).Fields(googleapi.Field(fileFieldsSet)).AddParents(parentIds[0]).RemoveParents(oldParentIds[0]).Do()
+	if nil != err {
+		err = errors.Wrapf(err, "could not update file with id", fileId)
+	}
+	return f, err
+}
+
 func (d *Drive) delete(file contracts.File) error {
 	var err error
 	if err = d.filesService.Delete(file.Id).Do(); err == nil {
@@ -375,7 +427,7 @@ func (d *Drive) download(file contracts.File) error {
 
 	if sameFileExists, err := d.isLocalSameAsRemote(file); err == nil && sameFileExists {
 		d.log.Debug(fmt.Sprintf("skipping file %s: already exists", file.Id))
-		if err = d.setDownloadTimeByStats(file); err != nil {
+		if err = d.setDownloadTimeByStatsForFile(file); err != nil {
 			return err
 		}
 		if err = d.fileRepository.SetPrevRemoteModificationDate(file.Id, file.CurRemoteModTime); err != nil {
@@ -417,7 +469,7 @@ func (d *Drive) download(file contracts.File) error {
 				return errors.Wrap(err, "could not write a chunk")
 			}
 		}
-		return d.setDownloadTimeByStats(file)
+		return d.setDownloadTimeByStatsForFile(file)
 	}
 
 	return err
@@ -450,7 +502,7 @@ func (d *Drive) isLocalSameAsRemote(file contracts.File) (bool, error) {
 	}
 }
 
-func (d *Drive) setDownloadTimeByStats(file contracts.File) error {
+func (d *Drive) setDownloadTimeByStatsForFile(file contracts.File) error {
 	fileFullPath := lfile.GetCurFullPath(file)
 	if stat, err := os.Stat(fileFullPath); nil == err {
 		return d.fileRepository.SetDownloadTime(file.Id, stat.ModTime())

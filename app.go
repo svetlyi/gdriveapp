@@ -67,26 +67,62 @@ func main() {
 	//log.Info("cleaned database")
 
 	var parentId string
-	deletedFolders, err := repository.GetDeletedFoldersIds()
+	removedFoldersIds, err := repository.GetLocallyRemovedFoldersIds()
 	if nil != err {
 		log.Error(err)
 		os.Exit(1)
 	}
-	filepath.Walk(
+	err = filepath.Walk(
 		filepath.Join(config.DrivePath, rootFolder.CurRemoteName),
 		func(path string, info os.FileInfo, err error) error {
 			fmt.Println(path)
 			curFilePath := path[len(config.DrivePath):]
 			fileId, err := repository.GetFileIdByCurPath(curFilePath, rootFolder)
+			// it means the file or directory is new (created, moved or copied)
 			if sql.ErrNoRows == errors.Cause(err) {
 				if info.IsDir() {
-					for _, deletedFolder := range deletedFolders {
-						if same, err := synchronizer.AreFoldersTheSame(path, deletedFolder); (nil == err) && same {
-							fmt.Println(curFilePath, "moved from", deletedFolder)
+					currentParentId, err := repository.GetFileParentIdByCurPath(curFilePath, rootFolder)
+					if nil != err {
+						return errors.Wrapf(err, "could not GetFileParentIdByCurPath for %s", curFilePath)
+					}
+					// first, if it is a dir, first guess, it was moved from somewhere else
+					for _, removedFolderId := range removedFoldersIds {
+						if same, err := synchronizer.AreFoldersTheSame(path, removedFolderId); (nil == err) && same {
+							oldParentId, err := repository.GetParentIdByChildId(removedFolderId)
+							if nil != err {
+								return errors.Wrapf(err, "could not GetParentIdByChildId for file id %s", removedFolderId)
+							}
+							log.Debug("local move detected", struct {
+								movedFolderId   string
+								currentParentId string
+								currentName     string
+							}{removedFolderId, currentParentId, info.Name()})
+							f, err := rd.Update(removedFolderId, info.Name(), []string{currentParentId}, []string{oldParentId})
+							if nil != err {
+								return err
+							}
+							err = repository.SetRemovedLocally(removedFolderId, false)
+							if nil != err {
+								return err
+							}
+							err = repository.SetCurRemoteData(removedFolderId, f.ModifiedTime, info.Name(), f.Parents)
+							if nil != err {
+								return err
+							}
+							err = repository.SetPrevRemoteDataToCur(removedFolderId)
+							if nil != err {
+								return err
+							}
+							return nil
 						}
 					}
 				}
-				fmt.Println("creating", curFilePath, "in", parentId)
+				log.Info("creating", path, "in", parentId)
+				if err := rd.Upload(path, []string{parentId}); nil != err {
+					return errors.Wrapf(err, "could not upload file %s", path)
+				}
+			} else if nil != err {
+				return errors.Wrapf(err, "could not GetFileIdByCurPath for %s", curFilePath)
 			}
 			if info.IsDir() {
 				parentId = fileId
@@ -94,4 +130,7 @@ func main() {
 			return nil
 		},
 	)
+	if nil != err {
+		log.Error(err)
+	}
 }
