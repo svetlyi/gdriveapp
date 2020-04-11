@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS files (
 	root_folder SMALLINT,
 	size INTEGER,
 	trashed SMALLINT DEFAULT 0,
-	removed_remotely SMALLINT DEFAULT 0
+	removed_remotely SMALLINT DEFAULT 0,
+	removed_locally SMALLINT DEFAULT 0
 )
 `)
 	queries = append(queries, `

@@ -7,6 +7,7 @@ import (
 	lfileHash "github.com/svetlyi/gdriveapp/ldrive/file/hash"
 	"github.com/svetlyi/gdriveapp/rdrive"
 	"github.com/svetlyi/gdriveapp/rdrive/db/file"
+	"github.com/svetlyi/gdriveapp/rdrive/specification"
 	"os"
 	"path/filepath"
 )
@@ -136,7 +137,11 @@ func (s *Synchronizer) AreFoldersTheSame(fullFolderPath string, remoteFolderId s
 				isDirTheSame = false
 				break
 			}
-			if localFile.FileInfo.IsDir() {
+			if localFile.FileInfo.IsDir() != specification.IsFolder(dbFile) {
+				isDirTheSame = false
+				break
+			}
+			if localFile.FileInfo.IsDir() || specification.IsFolder(dbFile) {
 				continue
 			}
 			var hash string

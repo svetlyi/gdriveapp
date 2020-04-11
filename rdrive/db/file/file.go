@@ -479,6 +479,7 @@ func (fr *Repository) CleanUpDatabase() (err error) {
 					OR fp_file.removed_remotely = 1
 					OR fp_file.trashed = 1
 					OR f.removed_remotely = 1
+					OR f.removed_locally = 1
 					OR f.trashed = 1)
 	`
 	if _, err = fr.db.Exec(query); nil != err {
@@ -567,7 +568,7 @@ func (fr *Repository) GetFileIdByPathSlice(lookForPath []string, lookInParentId 
 			return fr.GetFileIdByPathSlice(lookForPath[1:], fileId)
 		}
 	} else if sql.ErrNoRows == err {
-		return "", errors.Wrapf(err, "could not find file id with name %s", lookForName)
+		return "", errors.Wrapf(err, "could not find file id by path slice with name %s in %s", lookForName, lookInParentId)
 	} else {
 		return "", errors.Wrap(err, "could not scan file id")
 	}

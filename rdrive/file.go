@@ -9,11 +9,11 @@ import (
 	"github.com/svetlyi/gdriveapp/contracts"
 	lfile "github.com/svetlyi/gdriveapp/ldrive/file"
 	lfileHash "github.com/svetlyi/gdriveapp/ldrive/file/hash"
+	"github.com/svetlyi/gdriveapp/rdrive/specification"
 	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/googleapi"
 	"io"
 	"os"
-	"strings"
 	"time"
 )
 
@@ -159,7 +159,7 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 	}
 
 	if (localChangeType != contracts.FILE_NOT_CHANGED || remoteChangeType != contracts.FILE_NOT_CHANGED) &&
-		(canDownloadFile(file) || isFolder(file)) {
+		(specification.CanDownloadFile(file) || specification.IsFolder(file)) {
 		d.log.Debug("SyncRemoteWithLocal. change types", struct {
 			file             contracts.File
 			localChangeType  contracts.FileChangeType
@@ -168,7 +168,7 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 	}
 
 	curFullFilePath := lfile.GetCurFullPath(file)
-	if isFolder(file) {
+	if specification.IsFolder(file) {
 		switch { // the only things that can happen to a folder is: move, delete
 		case contracts.FILE_MOVED == remoteChangeType:
 			return d.handleMovedRemotely(file)
@@ -187,7 +187,7 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 			}
 		}
 	}
-	if !canDownloadFile(file) {
+	if !specification.CanDownloadFile(file) {
 		return nil
 	}
 
@@ -210,7 +210,7 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 	case contracts.FILE_NOT_CHANGED == remoteChangeType && contracts.FILE_DELETED == localChangeType:
 		d.log.Debug("deleting file remotely. remote file has not changed. local one deleted", file)
 		if err = d.fileRepository.SetRemovedLocally(file.Id, true); err != nil {
-			err = errors.Wrapf(err, "could not delete file %s", file.Id)
+			err = errors.Wrapf(err, "could not set removed locally for file %s", file.Id)
 		}
 	case contracts.FILE_UPDATED == remoteChangeType && contracts.FILE_NOT_CHANGED == localChangeType:
 		d.log.Debug("downloading file. remote file changed", file)
@@ -401,6 +401,30 @@ func (d *Drive) Upload(curFullPath string, parentIds []string) error {
 	return nil
 }
 
+func (d *Drive) CreateFolder(curFullPath string, parentIds []string) (string, error) {
+	stat, err := os.Stat(curFullPath)
+	if nil != err {
+		return "", errors.Wrapf(err, "could not get stat for folder %s", curFullPath)
+	}
+	var rf *drive.File
+	rf, err = d.filesService.
+		Create(&drive.File{
+			Name:     stat.Name(),
+			Parents:  parentIds,
+			MimeType: specification.GetFolderMime(),
+		}).
+		Fields(googleapi.Field(fileFieldsSet)).
+		Do()
+	if nil != err {
+		return "", errors.Wrapf(err, "could not upload file %s", curFullPath)
+	}
+	err = d.fileRepository.CreateFile(rf)
+	if nil != err {
+		return "", errors.Wrapf(err, "could not create folder %s in db", curFullPath)
+	}
+	return rf.Id, nil
+}
+
 func (d *Drive) Update(fileId string, name string, parentIds []string, oldParentIds []string) (*drive.File, error) {
 	f, err := d.filesService.Update(fileId, &drive.File{
 		Name: name,
@@ -509,12 +533,4 @@ func (d *Drive) setDownloadTimeByStatsForFile(file contracts.File) error {
 	} else {
 		return errors.Wrapf(err, "could not get the file's %s stats", fileFullPath)
 	}
-}
-
-func isFolder(file contracts.File) bool {
-	return file.MimeType == "application/vnd.google-apps.folder"
-}
-
-func canDownloadFile(file contracts.File) bool {
-	return !strings.Contains(file.MimeType, "application/vnd.google-apps")
 }
