@@ -14,11 +14,12 @@ import (
 )
 
 type Drive struct {
-	filesService   drive.FilesService
-	changesService drive.ChangesService
-	fileRepository file.Repository
-	appState       app.Store
-	log            contracts.Logger
+	filesService    drive.FilesService
+	changesService  drive.ChangesService
+	fileRepository  file.Repository
+	appState        app.Store
+	log             contracts.Logger
+	pageSizeToQuery int64
 }
 
 func New(
@@ -27,13 +28,15 @@ func New(
 	fileRepository file.Repository,
 	log contracts.Logger,
 	appState app.Store,
+	pageSizeToQuery int64,
 ) Drive {
 	return Drive{
-		filesService:   filesService,
-		changesService: changesService,
-		fileRepository: fileRepository,
-		log:            log,
-		appState:       appState,
+		filesService:    filesService,
+		changesService:  changesService,
+		fileRepository:  fileRepository,
+		log:             log,
+		appState:        appState,
+		pageSizeToQuery: pageSizeToQuery,
 	}
 }
 

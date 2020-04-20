@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/pkg/errors"
 	"github.com/svetlyi/gdriveapp/app"
-	"github.com/svetlyi/gdriveapp/config"
 	"github.com/svetlyi/gdriveapp/contracts"
 	lfile "github.com/svetlyi/gdriveapp/ldrive/file"
 	lfileHash "github.com/svetlyi/gdriveapp/ldrive/file/hash"
@@ -30,7 +29,7 @@ func (d *Drive) getFilesList(filesChan chan *drive.File) {
 		if "" != nextPageToken {
 			filesListCall.PageToken(nextPageToken)
 		}
-		fileList, err := filesListCall.PageSize(config.PageSizeToQuery).Fields(
+		fileList, err := filesListCall.PageSize(d.pageSizeToQuery).Fields(
 			googleapi.Field(fmt.Sprintf("nextPageToken, files(%s)", fileFieldsSet)),
 		).Do()
 
@@ -81,7 +80,7 @@ func (d *Drive) getChangedFilesList(filesChan chan *drive.Change, exitChan contr
 			d.log.Info("next page token", nextPageToken)
 		}
 		changesListCall = d.changesService.List(nextPageToken)
-		changeList, err := changesListCall.PageSize(config.PageSizeToQuery).Fields(
+		changeList, err := changesListCall.PageSize(d.pageSizeToQuery).Fields(
 			googleapi.Field(fmt.Sprintf("nextPageToken, changes(removed, fileId, file(%s))", fileFieldsSet)),
 		).Do()
 

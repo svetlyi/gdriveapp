@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"github.com/pkg/errors"
 	"github.com/svetlyi/gdriveapp/app"
 	"github.com/svetlyi/gdriveapp/config"
@@ -21,21 +22,42 @@ import (
 )
 
 func main() {
-	srv, err := drive.NewService(context.Background(), option.WithTokenSource(auth.GetTokenSource()))
-	log := logger.New()
+	cfg, err := config.ReadCreateIfNotExist()
+	if nil != err {
+		fmt.Println("could not get read config", err)
+		os.Exit(1)
+	}
+	log, logErr := logger.New(config.GetAppName(), cfg.LogFileMaxSize)
+	if nil != logErr {
+		fmt.Println("could not create logger", logErr)
+		os.Exit(1)
+	}
+
+	log.Info("directory to store \"My Drive\"", cfg.DrivePath)
+	cfgDir, cfgDirErr := config.GetCfgDir()
+	if nil != cfgDirErr {
+		log.Error("could not get config dir", cfgDirErr)
+		os.Exit(1)
+	}
+	tokenSource, tokenSourceErr := auth.GetTokenSource(cfgDir)
+	if nil != tokenSourceErr {
+		log.Error("could not get token source", tokenSourceErr)
+		os.Exit(1)
+	}
+	srv, err := drive.NewService(context.Background(), option.WithTokenSource(tokenSource))
 	if err != nil {
 		log.Error("unable to retrieve Drive client: %v", err)
 		os.Exit(1)
 	}
 
 	rdrive.PrintUsageStats(srv.About, log)
-	dbInstance := db.New(config.DBPath, log)
+	dbInstance := db.New(cfg.DBPath, log)
 	defer dbInstance.Close()
 	repository := file.NewRepository(dbInstance, log)
 
 	// first sync changes in the remote drive
 	rootFolder, err := repository.GetRootFolder()
-	rd := rdrive.New(*srv.Files, *srv.Changes, repository, log, app.New(dbInstance, log))
+	rd := rdrive.New(*srv.Files, *srv.Changes, repository, log, app.New(dbInstance, log), cfg.PageSizeToQuery)
 	if errors.Cause(err) == sql.ErrNoRows {
 		if err = rd.FillDb(); nil != err {
 			log.Error("synchronization error", err)
@@ -73,13 +95,13 @@ func main() {
 	var parentId string
 
 	err = filepath.Walk(
-		filepath.Join(config.DrivePath, rootFolder.CurRemoteName),
+		filepath.Join(cfg.DrivePath, rootFolder.CurRemoteName),
 		func(path string, info os.FileInfo, err error) error {
 			if nil != err {
 				return errors.Wrapf(err, "cold not walk in path %s", path)
 			}
 			log.Debug("next local path", path)
-			curRelativeFilePath := path[len(config.DrivePath):]
+			curRelativeFilePath := path[len(cfg.DrivePath):]
 			fileId, fileIdErr := repository.GetFileIdByCurPath(curRelativeFilePath, rootFolder)
 
 			curDepth = len(strings.Split(curRelativeFilePath, string(os.PathSeparator)))

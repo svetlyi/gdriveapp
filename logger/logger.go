@@ -2,7 +2,7 @@ package logger
 
 import (
 	"fmt"
-	"github.com/svetlyi/gdriveapp/config"
+	"github.com/pkg/errors"
 	"log"
 	"os"
 	"path/filepath"
@@ -10,24 +10,24 @@ import (
 
 var logPath string
 
-func init() {
-	logPath = filepath.Join(os.TempDir(), config.AppName+".log")
+type Logger struct {
+	appName        string
+	logFileMaxSize int64
+}
+
+func New(appName string, logFileMaxSize int64) (Logger, error) {
+	l := Logger{appName, logFileMaxSize}
+	logPath = filepath.Join(os.TempDir(), appName+".log")
 	if stat, err := os.Stat(logPath); nil == err {
-		if stat.Size() > config.LogFileMaxSize {
+		if stat.Size() > logFileMaxSize {
 			if err = os.Remove(logPath); nil != err {
-				log.Fatal("could not open remove log file", logPath, err)
+				return Logger{}, errors.Wrapf(err, "could not remove log file %s", logPath)
 			}
 		}
 	} else if !os.IsNotExist(err) {
-		log.Fatal("could not open log file", logPath, err)
+		return Logger{}, errors.Wrapf(err, "could not open log file %s", logPath)
 	}
-}
-
-type Logger struct {
-}
-
-func New() Logger {
-	return Logger{}
+	return l, nil
 }
 
 func (l Logger) Debug(v ...interface{}) {

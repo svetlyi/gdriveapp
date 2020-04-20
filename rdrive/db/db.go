@@ -13,6 +13,7 @@ var db *sql.DB = nil
 func New(dbPath string, logger contracts.Logger) *sql.DB {
 	var err error
 
+	logger.Debug("opening database", dbPath)
 	db, err = sql.Open("sqlite3", dbPath)
 	if err != nil {
 		logger.Error("Could not open the database file", err)
