@@ -28,7 +28,7 @@ we created previously:
 
 ![download-credentials](documentation/download-credentials.png "Download credentials")
 
-And save it to /home/`[your-home-dir]`/.config/gdriveapp/credentials.json. It will ask you to go to a link to get the token.
+And save it to /home/`[your-home-dir]`/.config/svetlyi_gdriveapp/credentials.json. It will ask you to go to a link to get the token.
 As the application was not verified, we will get a warning, that "This app isn't verified". Just go to "Advanced" and
 then "Go to [your-app] (unsafe)":
 
