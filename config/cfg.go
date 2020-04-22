@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/pkg/errors"
+	"github.com/svetlyi/gdriveapp/contracts"
 	"io/ioutil"
 	"log"
 	"os"
@@ -18,6 +19,7 @@ type Cfg struct {
 	PageSizeToQuery int64  `json:"page_size_to_query"`
 	DrivePath       string `json:"drive_path"`
 	LogFileMaxSize  int64  `json:"log_file_max_size"`
+	LogVerbosity    int64  `json:"log_verbosity"`
 }
 
 var appName = "svetlyi_gdriveapp"
@@ -63,6 +65,7 @@ func newDefault() (Cfg, error) {
 		PageSizeToQuery: 300,
 		DrivePath:       "",
 		LogFileMaxSize:  1e7,
+		LogVerbosity:    int64(contracts.LogInfoLevel),
 	}
 	usr, err := user.Current()
 	if nil != err {

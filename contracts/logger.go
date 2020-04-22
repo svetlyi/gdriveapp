@@ -6,3 +6,10 @@ type Logger interface {
 	Warning(v ...interface{})
 	Error(v ...interface{})
 }
+
+const (
+	LogErrorLevel uint8 = iota
+	LogInfoLevel
+	LogWarningLevel
+	LogDebugLevel
+)

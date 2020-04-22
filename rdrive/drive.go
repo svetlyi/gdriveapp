@@ -153,6 +153,11 @@ func PrintUsageStats(aboutService *drive.AboutService, log contracts.Logger) {
 		log.Error("Unable to retrieve About data: %v", err)
 		os.Exit(1)
 	}
-	fmt.Println("Usage stats:")
-	fmt.Printf("Used: %.3f GB\n", float64(aboutData.StorageQuota.Usage)/math.Pow(1024, 2))
+	log.Info("Usage stats:", struct {
+		Used  string
+		Limit string
+	}{
+		fmt.Sprintf("%.3f GB", float64(aboutData.StorageQuota.Usage)/math.Pow(1024, 2)),
+		fmt.Sprintf("%.3f GB", float64(aboutData.StorageQuota.Limit)/math.Pow(1024, 2)),
+	})
 }

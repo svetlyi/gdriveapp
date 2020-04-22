@@ -124,7 +124,7 @@ func (d *Drive) getChangedFilesList(filesChan chan *drive.Change, exitChan contr
 		d.log.Error("error saving NextChangeToken to app state", err)
 		close(exitChan)
 	}
-	d.log.Info("changes:closing files channel")
+	d.log.Debug("changes:closing files channel")
 
 	close(filesChan)
 }
@@ -175,7 +175,7 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 			return d.handleRemovedRemotely(file)
 		case contracts.FILE_UPDATED == remoteChangeType ||
 			(contracts.FILE_NOT_CHANGED == remoteChangeType && contracts.FILE_NOT_EXIST == localChangeType):
-			d.log.Debug("creating folder", struct {
+			d.log.Info("creating folder", struct {
 				name string
 			}{name: file.CurRemoteName})
 			if err := os.Mkdir(curFullFilePath, 0644); !os.IsExist(err) {
@@ -192,7 +192,7 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 
 	switch {
 	case contracts.FILE_NOT_CHANGED == remoteChangeType && contracts.FILE_NOT_EXIST == localChangeType:
-		d.log.Debug("downloading file. remote file has not changed. local one does not exist", file)
+		d.log.Info("downloading file. remote file has not changed. local one does not exist", file)
 		if err = d.download(file); err != nil {
 			err = errors.Wrapf(err, "could not download file %s", file.Id)
 		}
@@ -202,37 +202,41 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 		}
 		break // do nothing
 	case contracts.FILE_NOT_CHANGED == remoteChangeType && contracts.FILE_UPDATED == localChangeType:
-		d.log.Debug("uploading file. remote file has not changed. local one updated", file)
+		d.log.Info("uploading file. remote file has not changed. local one updated", file)
 		if err = d.updateRemote(file); err != nil {
 			err = errors.Wrapf(err, "could not updateRemote file %s", file.Id)
 		}
 	case contracts.FILE_NOT_CHANGED == remoteChangeType && contracts.FILE_DELETED == localChangeType:
-		d.log.Debug("deleting file remotely. remote file has not changed. local one deleted", file)
+		d.log.Info("deleting file remotely. remote file has not changed. local one deleted", file)
 		if err = d.fileRepository.SetRemovedLocally(file.Id, true); err != nil {
 			err = errors.Wrapf(err, "could not set removed locally for file %s", file.Id)
 		}
 	case contracts.FILE_UPDATED == remoteChangeType && contracts.FILE_NOT_CHANGED == localChangeType:
-		d.log.Debug("downloading file. remote file changed", file)
+		d.log.Info("downloading file. remote file changed", file)
 		if err = d.download(file); err != nil {
 			err = errors.Wrapf(err, "could not download file %s", file.Id)
 		}
 	case contracts.FILE_UPDATED == remoteChangeType && contracts.FILE_UPDATED == localChangeType:
+		d.log.Warning("CONFLICT. remote and local files were changed", file)
 		break //TODO: conflict
 	case contracts.FILE_UPDATED == remoteChangeType && contracts.FILE_DELETED == localChangeType:
+		d.log.Warning("CONFLICT. remote file was changed, but local one was deleted", file)
 		break //TODO: conflict
 	case contracts.FILE_DELETED == remoteChangeType && contracts.FILE_NOT_CHANGED == localChangeType:
-		d.log.Debug("deleting file locally", file)
+		d.log.Info("deleting file locally", file)
 		err = os.Remove(curFullFilePath)
 	case contracts.FILE_DELETED == remoteChangeType && contracts.FILE_UPDATED == localChangeType:
+		d.log.Warning("CONFLICT. remote file was deleted, but local one was updated", file)
 		break //TODO: conflict
 	case contracts.FILE_DELETED == remoteChangeType && contracts.FILE_DELETED == localChangeType:
 		err = d.fileRepository.SetRemovedLocally(file.Id, true)
 	case contracts.FILE_MOVED == remoteChangeType && contracts.FILE_NOT_CHANGED == localChangeType:
 		err = d.handleMovedRemotely(file)
 	case contracts.FILE_MOVED == remoteChangeType && contracts.FILE_UPDATED == localChangeType:
+		d.log.Warning("CONFLICT. remote file was moved, but local one was updated", file)
 		break //TODO: conflict
 	case contracts.FILE_MOVED == remoteChangeType && contracts.FILE_DELETED == localChangeType:
-		d.log.Debug("downloading file. remote file was moved, local one deleted", file)
+		d.log.Info("downloading file. remote file was moved, local one deleted", file)
 		if err = d.download(file); err != nil {
 			err = errors.Wrapf(err, "could not download file %s", file.Id)
 		}
@@ -388,6 +392,15 @@ func (d *Drive) Upload(curFullPath string, parentIds []string) error {
 			return errors.Wrapf(err, "could not upload file %s", curFullPath)
 		}
 	} else {
+		d.log.Debug("uploading: found the same file. copying", struct {
+			sameFileName     string
+			sameFileId       string
+			fileNameToUpload string
+		}{
+			sameFile.CurRemoteName,
+			sameFile.Id,
+			stat.Name(),
+		})
 		rf, err = d.filesService.
 			Copy(sameFile.Id, &drive.File{Name: stat.Name(), Parents: parentIds}).
 			Fields(googleapi.Field(fileFieldsSet)).

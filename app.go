@@ -27,7 +27,7 @@ func main() {
 		fmt.Println("could not get read config", err)
 		os.Exit(1)
 	}
-	log, logErr := logger.New(config.GetAppName(), cfg.LogFileMaxSize)
+	log, logErr := logger.New(config.GetAppName(), cfg.LogFileMaxSize, uint8(cfg.LogVerbosity))
 	if nil != logErr {
 		fmt.Println("could not create logger", logErr)
 		os.Exit(1)
@@ -227,5 +227,5 @@ func main() {
 		log.Error("error cleaning up database", err)
 		os.Exit(1)
 	}
-	log.Info("cleaned database")
+	log.Debug("cleaned database from old files")
 }

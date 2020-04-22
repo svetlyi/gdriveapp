@@ -1,6 +1,6 @@
 *.json
 *.db
-rdriveapp
+gdriveapp
 .idea
 *.swo
 *.swp
