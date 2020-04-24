@@ -178,7 +178,7 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 			d.log.Info("creating folder", struct {
 				name string
 			}{name: file.CurRemoteName})
-			if err := os.Mkdir(curFullFilePath, 0644); !os.IsExist(err) {
+			if err := os.Mkdir(curFullFilePath, 0744); !os.IsExist(err) {
 				return errors.Wrap(err, "could not create dir")
 			}
 			if err := d.fileRepository.SetPrevRemoteDataToCur(file.Id); nil != err {

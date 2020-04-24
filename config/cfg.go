@@ -24,6 +24,7 @@ type Cfg struct {
 
 var appName = "svetlyi_gdriveapp"
 var cfgPath string
+var cfgCache Cfg
 
 func init() {
 	if path, err := GetCfgDir(); nil == err {
@@ -104,6 +105,7 @@ func ReadCreateIfNotExist() (Cfg, error) {
 			}
 		}
 	}
+	cfgCache = cfg
 
 	return cfg, err
 }
@@ -119,4 +121,8 @@ func GetCfgDir() (string, error) {
 
 func GetAppName() string {
 	return appName
+}
+
+func GetCfg() Cfg {
+	return cfgCache
 }
