@@ -15,10 +15,11 @@ type Logger struct {
 	appName        string
 	logFileMaxSize int64
 	verbosity      uint8
+	alsoUseStdout  bool
 }
 
-func New(appName string, logFileMaxSize int64, verbosity uint8) (Logger, error) {
-	l := Logger{appName, logFileMaxSize, verbosity}
+func New(appName string, logFileMaxSize int64, verbosity uint8, alsoUseStdout bool) (Logger, error) {
+	l := Logger{appName, logFileMaxSize, verbosity, alsoUseStdout}
 	logPath = filepath.Join(os.TempDir(), appName+".log")
 	if stat, err := os.Stat(logPath); nil == err {
 		if stat.Size() > logFileMaxSize {
@@ -65,7 +66,9 @@ func (l Logger) log(v ...interface{}) {
 		msg = fmt.Sprintf("%+v", v)
 	}
 
-	log.Println(msg)
+	if l.alsoUseStdout {
+		log.Println(msg)
+	}
 	f := l.getLogFile()
 	defer f.Close()
 	_, err := f.WriteString(msg + "\n")
