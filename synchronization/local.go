@@ -15,8 +15,7 @@ import (
 func (s *Synchronizer) SyncLocalWithRemote(drivePath string, rootFolder contracts.File) error {
 	locallyRemovedFoldersIds, err := s.fr.GetLocallyRemovedFoldersIds()
 	if nil != err {
-		s.log.Error(err)
-		os.Exit(1)
+		return errors.Wrap(err, "could not get locally removed folders ids")
 	}
 	var parentsStack structures.StringStack
 	parentsStack.Push(rootFolder.Id)

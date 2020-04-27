@@ -14,22 +14,15 @@ import (
 )
 
 type Drive struct {
-	filesService    drive.FilesService
-	changesService  drive.ChangesService
+	filesService    contracts.FilesService
+	changesService  contracts.ChangesService
 	fileRepository  file.Repository
 	appState        app.Store
 	log             contracts.Logger
 	pageSizeToQuery int64
 }
 
-func New(
-	filesService drive.FilesService,
-	changesService drive.ChangesService,
-	fileRepository file.Repository,
-	log contracts.Logger,
-	appState app.Store,
-	pageSizeToQuery int64,
-) Drive {
+func New(filesService contracts.FilesService, changesService contracts.ChangesService, fileRepository file.Repository, log contracts.Logger, appState app.Store, pageSizeToQuery int64) Drive {
 	return Drive{
 		filesService:    filesService,
 		changesService:  changesService,

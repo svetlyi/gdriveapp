@@ -22,7 +22,7 @@ var fileFieldsSet = "id, name, mimeType, parents, shared, md5Checksum, size, mod
 // one by one
 func (d *Drive) getFilesList(filesChan chan *drive.File) {
 	var nextPageToken = ""
-	var filesListCall *drive.FilesListCall
+	var filesListCall contracts.FilesListCall
 
 	for {
 		filesListCall = d.filesService.List()

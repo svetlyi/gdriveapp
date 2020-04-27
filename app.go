@@ -54,7 +54,7 @@ func main() {
 
 	// first sync changes in the remote drive
 	rootFolder, err := repository.GetRootFolder()
-	rd := rdrive.New(*srv.Files, *srv.Changes, repository, log, app.New(dbInstance, log), cfg.PageSizeToQuery)
+	rd := rdrive.New(srv.Files, srv.Changes, repository, log, app.New(dbInstance, log), cfg.PageSizeToQuery)
 	if errors.Cause(err) == sql.ErrNoRows {
 		if err = rd.FillDb(); nil != err {
 			log.Error("synchronization error", err)
@@ -74,7 +74,7 @@ func main() {
 	log.Info("metadata syncing has finished")
 
 	// now sync changes from the remote (saved in DB on the previous step) to local drive
-	synchronizer := synchronization.New(repository, log, dbInstance, rd)
+	synchronizer := synchronization.New(repository, log, rd)
 	if err = synchronizer.SyncRemoteWithLocal(); nil != err {
 		log.Error("SyncRemoteWithLocal error", err)
 		os.Exit(1)
