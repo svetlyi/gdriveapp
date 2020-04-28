@@ -1,4 +1,9 @@
-A client for Google Drive
+# ATTENTION
+
+`It is not very stable yet. If you want to test it, follow the instruction bellow
+and write about issues or fix them via a pull request`
+
+An unofficial client for Google Drive
 =====
 
 # How to install
