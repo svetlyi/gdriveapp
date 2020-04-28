@@ -24,7 +24,7 @@ func main() {
 		fmt.Println("could not get read config", err)
 		os.Exit(1)
 	}
-	log, logErr := logger.New(config.GetAppName(), cfg.LogFileMaxSize, uint8(cfg.LogVerbosity), false)
+	log, logErr := logger.New(config.GetAppName(), cfg.LogFileMaxSize, uint8(cfg.LogVerbosity), true)
 	if nil != logErr {
 		fmt.Println("could not create logger", logErr)
 		os.Exit(1)

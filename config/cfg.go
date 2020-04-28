@@ -78,7 +78,7 @@ func newDefault() (Cfg, error) {
 		return Cfg{}, errors.Wrap(cfgDirErr, "could not get config dir")
 	}
 	defaultCfg.DBPath = filepath.Join(cfgDir, "sync.db")
-	defaultCfg.DrivePath = usr.HomeDir
+	defaultCfg.DrivePath = usr.HomeDir + string(os.PathSeparator)
 
 	return defaultCfg, nil
 }
@@ -92,14 +92,24 @@ func ReadCreateIfNotExist() (Cfg, error) {
 				return cfg, errors.Wrap(err, "could not get default config")
 			}
 			r := bufio.NewReader(os.Stdin)
-			fmt.Printf("Store \"My Drive\" folder in (%s): ", cfg.DrivePath)
-			drivePath, err := r.ReadString('\n')
-			if nil != err {
-				return cfg, errors.Wrap(err, "could not read custom folder")
+			var drivePath string
+			for {
+				fmt.Printf("Store \"My Drive\" folder in (%s) absolute path: ", cfg.DrivePath)
+				drivePath, err = r.ReadString('\n')
+				drivePath = strings.Trim(drivePath, " \n")
+				if nil != err {
+					return cfg, errors.Wrap(err, "could not read custom folder")
+				}
+				if "" != drivePath {
+					if isDrivePathValid(drivePath) {
+						cfg.DrivePath = drivePath
+						break
+					}
+				} else {
+					break
+				}
 			}
-			if "" != drivePath {
-				cfg.DrivePath = strings.Trim(drivePath, " \n")
-			}
+
 			if err = Save(cfg); nil != err {
 				return cfg, errors.Wrap(err, "could not save config")
 			}
@@ -108,6 +118,11 @@ func ReadCreateIfNotExist() (Cfg, error) {
 	cfgCache = cfg
 
 	return cfg, err
+}
+
+func isDrivePathValid(path string) bool {
+	return strings.HasSuffix(path, string(os.PathSeparator)) &&
+		strings.HasPrefix(path, string(os.PathSeparator))
 }
 
 func GetCfgDir() (string, error) {
