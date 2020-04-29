@@ -30,7 +30,7 @@ func New(appName string, logFileMaxSize int64, verbosity uint8, alsoUseStdout bo
 	} else if !os.IsNotExist(err) {
 		return Logger{}, errors.Wrapf(err, "could not open log file %s", logPath)
 	}
-	l.Debug("log file location", logPath)
+	l.Info("log file location", logPath)
 	return l, nil
 }
 

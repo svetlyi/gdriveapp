@@ -8,6 +8,14 @@ An unofficial client for Google Drive
 
 # How to install
 
+## Compile
+
+First you will need to get `credentials.json` file, that is described in **Get Token**
+section. Then just clone the repository and run `go build` with the parameters you need, 
+for example `env GOOS=linux GOARCH=amd64 go build` and then just launch `./gdriveapp`.
+
+## Get token
+
 First [create](https://console.cloud.google.com/projectcreate) a project:
 
 ![create-project](documentation/create-project.png "Create project")
@@ -42,3 +50,12 @@ then "Go to [your-app] (unsafe)":
 Then we grant all the permissions it requires (as it is a Google Drive client, it can perform various operations with 
 your files such as download, upload and read). After that we will have a code, that we should paste into console and 
 press "Enter".
+
+# Notes
+
+* It is not a daemon at this moment, so you need to run it from time to time to synchronize your files. 
+Or you can put in cron for example.
+* It takes some time for the changes to propagate in Google Drive itself, so when you change something in web interface,
+it might take a few minutes to propagate and then the application would download the changes.
+* Logs are stored in a temporary location in your OS (`/tmp/svetlyi_gdriveapp.log` for Linux). In case something wrong
+happens, the answer might be there.
