@@ -79,14 +79,19 @@ func main() {
 		log.Error("SyncRemoteWithLocal error", err)
 		os.Exit(1)
 	}
-	log.Info("successfully synchronized")
 
 	err = synchronizer.SyncLocalWithRemote(cfg.DrivePath, rootFolder)
-
 	if nil != err {
 		log.Error(err)
 		os.Exit(1)
 	}
+	if err = synchronizer.RemoveLocallyRemoved(); nil != err {
+		log.Error(err)
+		os.Exit(1)
+	}
+
+	log.Info("successfully synchronized")
+
 	if err = repository.CleanUpDatabase(); nil != err {
 		log.Error("error cleaning up database", err)
 		os.Exit(1)

@@ -168,7 +168,7 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 
 	curFullFilePath := lfile.GetCurFullPath(file)
 	if specification.IsFolder(file) {
-		switch { // the only things that can happen to a folder is: move, delete
+		switch { // the only the things that can happen to a folder are: move, Delete
 		case contracts.FILE_MOVED == remoteChangeType:
 			return d.handleMovedRemotely(file)
 		case contracts.FILE_DELETED == remoteChangeType:
@@ -207,7 +207,7 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 			err = errors.Wrapf(err, "could not updateRemote file %s", file.Id)
 		}
 	case contracts.FILE_NOT_CHANGED == remoteChangeType && contracts.FILE_DELETED == localChangeType:
-		d.log.Info("deleting file remotely. remote file has not changed. local one deleted", file)
+		d.log.Info("setting file to be deleted remotely. remote file has not changed. local one deleted", file)
 		if err = d.fileRepository.SetRemovedLocally(file.Id, true); err != nil {
 			err = errors.Wrapf(err, "could not set removed locally for file %s", file.Id)
 		}
@@ -410,7 +410,8 @@ func (d *Drive) Upload(curFullPath string, parentIds []string) error {
 	if nil != err {
 		return errors.Wrapf(err, "could not create file %s in db", curFullPath)
 	}
-	return nil
+
+	return d.fileRepository.SetDownloadTime(rf.Id, stat.ModTime())
 }
 
 func (d *Drive) CreateFolder(curFullPath string, parentIds []string) (string, error) {
@@ -447,7 +448,7 @@ func (d *Drive) Update(fileId string, name string, parentIds []string, oldParent
 	return f, err
 }
 
-func (d *Drive) delete(file contracts.File) error {
+func (d *Drive) Delete(file contracts.File) error {
 	var err error
 	if err = d.filesService.Delete(file.Id).Do(); err == nil {
 		err = d.fileRepository.Delete(file.Id)

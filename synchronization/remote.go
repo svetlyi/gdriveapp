@@ -66,7 +66,7 @@ func (s *Synchronizer) traverseFiles(filesChan contracts.FilesChan, sync contrac
 	filesChan <- root
 	<-sync
 
-	if err = s.getFilesByParent(root.Id, filesChan, sync); err != nil {
+	if err = s.getFilesByParentRecursively(root.Id, filesChan, sync); err != nil {
 		s.log.Error("Error getting files by parent", err)
 		close(filesChan)
 		return
@@ -74,7 +74,7 @@ func (s *Synchronizer) traverseFiles(filesChan contracts.FilesChan, sync contrac
 	close(filesChan)
 }
 
-func (s *Synchronizer) getFilesByParent(parentId string, filesChan contracts.FilesChan, sync contracts.SyncChan) error {
+func (s *Synchronizer) getFilesByParentRecursively(parentId string, filesChan contracts.FilesChan, sync contracts.SyncChan) error {
 	filesList, err := s.fr.GetCurFilesListByParent(parentId)
 	if err != nil {
 		return errors.Wrapf(err, "could not get files list for %s", parentId)
@@ -82,7 +82,59 @@ func (s *Synchronizer) getFilesByParent(parentId string, filesChan contracts.Fil
 	for _, f := range filesList {
 		filesChan <- f
 		<-sync
-		if err := s.getFilesByParent(f.Id, filesChan, sync); err != nil {
+		if err := s.getFilesByParentRecursively(f.Id, filesChan, sync); err != nil {
+			return errors.Wrap(err, "could not get files by parent")
+		}
+	}
+
+	return nil
+}
+
+// removeLocallyRemoved goes through locally removed files in hierarchical order. So, first goes the
+// root directory (My Drive), then all the children of the root, then the children of
+// the children and so on. Removes just locally removed parents.
+func (s *Synchronizer) RemoveLocallyRemoved() error {
+	root, err := s.fr.GetRootFolder()
+	filesChan := make(contracts.FilesChan)
+	sync := make(contracts.SyncChan)
+
+	if nil != err {
+		close(filesChan)
+		return errors.Wrap(err, "error getting root folder")
+	}
+	go func(fChan contracts.FilesChan, s contracts.SyncChan, rd rdrive.Drive, l contracts.Logger) {
+		for f := range fChan {
+			l.Info("removing remotely", f)
+			if err := rd.Delete(f); err != nil {
+				l.Error("error removing remotely", err)
+				os.Exit(1) //todo: do it more gracefully
+			}
+			s <- true
+		}
+	}(filesChan, sync, s.rd, s.log)
+
+	if err = s.getLocallyRemovedFilesByParentRecursively(root.Id, filesChan, sync); err != nil {
+		close(filesChan)
+		return errors.Wrap(err, "error getting files by parent")
+	}
+	close(filesChan)
+	return nil
+}
+
+// getLocallyRemovedFilesByParentRecursively gets locally removed files. As first the application just marks the files as removed,
+// but not removes remotely to look for moved files, folders later, eventually they need to be deleted if
+// they were not moved to somewhere else
+func (s *Synchronizer) getLocallyRemovedFilesByParentRecursively(parentId string, filesChan contracts.FilesChan, sync contracts.SyncChan) error {
+	filesList, err := s.fr.GetCurFilesListByParent(parentId)
+	if err != nil {
+		return errors.Wrapf(err, "could not get files list for %s", parentId)
+	}
+	for _, f := range filesList {
+		// we don't remove children of removed because we do not need to
+		if f.RemovedLocally == 1 {
+			filesChan <- f
+			<-sync
+		} else if err := s.getLocallyRemovedFilesByParentRecursively(f.Id, filesChan, sync); err != nil {
 			return errors.Wrap(err, "could not get files by parent")
 		}
 	}
@@ -99,7 +151,7 @@ func (s *Synchronizer) AreFoldersTheSame(fullFolderPath string, remoteFolderId s
 	var exitChan = make(contracts.ExitChan)
 
 	go func() {
-		if err := s.getFilesByParent(remoteFolderId, dbFilesChan, syncChan); nil != err {
+		if err := s.getFilesByParentRecursively(remoteFolderId, dbFilesChan, syncChan); nil != err {
 			s.log.Error(err)
 		}
 		close(dbFilesChan)

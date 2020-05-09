@@ -30,6 +30,7 @@ type File struct {
 	RootFolder       uint8
 	SizeBytes        uint64
 	RemovedRemotely  uint8
+	RemovedLocally   uint8
 	// if it was placed to trash
 	Trashed uint8
 }

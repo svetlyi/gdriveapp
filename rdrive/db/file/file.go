@@ -32,7 +32,8 @@ var fileSelectFields = `
     files.root_folder,
     files.size,
     files.trashed,
-    files.removed_remotely
+    files.removed_remotely,
+    files.removed_locally
 `
 
 func NewRepository(db *sql.DB, log contracts.Logger) Repository {
@@ -233,7 +234,7 @@ func (fr *Repository) SetRemovedLocally(fileId string, removed bool) (err error)
 	if removed {
 		removedArg = 1
 	}
-	if _, err = fr.db.Exec(query, fileId, removedArg); err != nil {
+	if _, err = fr.db.Exec(query, removedArg, fileId); err != nil {
 		err = errors.Wrapf(err, "could not set removed_locally for id %s", fileId)
 	}
 
@@ -592,6 +593,7 @@ func parseFileFromRow(row contracts.RowScanner) (f contracts.File, err error) {
 		&f.SizeBytes,
 		&f.Trashed,
 		&f.RemovedRemotely,
+		&f.RemovedLocally,
 	)
 
 	if err == nil {
