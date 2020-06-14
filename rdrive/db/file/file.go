@@ -145,14 +145,14 @@ func (fr *Repository) GetRootFolder() (contracts.File, error) {
 }
 
 // SetCurRemoteData updates cur_remote_modification_time and other data so that
-// after we could check if it was changed remotely. mtime is in RFC3339 format
+// after we could check if it was changed remotely. mtime is in RFC3339Nano format
 func (fr *Repository) SetCurRemoteData(fileId string, mtime string, name string, parents []string) error {
 	if len(parents) > 1 {
 		return errors.New("there is no support for multiple parents yet")
 	} else if len(parents) == 0 {
 		return nil
 	}
-	mtimeParsed, err := time.Parse(time.RFC3339, mtime)
+	mtimeParsed, err := time.Parse(time.RFC3339Nano, mtime)
 	if nil != err {
 		return errors.Wrapf(err, "wrong ModifiedTime %s", mtime)
 	}
@@ -202,7 +202,7 @@ func (fr *Repository) setPrevRemoteModTimeToCur(fileId string) (err error) {
 func (fr *Repository) setFileCurRemoteData(fileId string, mtime time.Time, name string) (err error) {
 	query := `UPDATE files SET 'cur_remote_modification_time' = ?, 'cur_remote_name' = ? WHERE id = ?`
 
-	if _, err = fr.db.Exec(query, mtime.Format(time.RFC3339), name, fileId); err != nil {
+	if _, err = fr.db.Exec(query, mtime.Format(time.RFC3339Nano), name, fileId); err != nil {
 		err = errors.Wrapf(err, "could not update file's %s data", fileId)
 	}
 	return
@@ -266,7 +266,7 @@ func (fr *Repository) deleteFromParents(fileId string) (err error) {
 func (fr *Repository) SetPrevRemoteModificationDate(fileId string, date time.Time) (err error) {
 	query := `UPDATE files SET 'prev_remote_modification_time' = ? WHERE id = ?`
 
-	if _, err := fr.db.Exec(query, date.Format(time.RFC3339), fileId); err != nil {
+	if _, err := fr.db.Exec(query, date.Format(time.RFC3339Nano), fileId); err != nil {
 		err = errors.Wrapf(err, "could not set prev_remote_modification_time for filId %s", fileId)
 	}
 
@@ -279,7 +279,7 @@ func (fr *Repository) SetPrevRemoteModificationDate(fileId string, date time.Tim
 func (fr *Repository) SetDownloadTime(fileId string, date time.Time) (err error) {
 	query := `UPDATE files SET 'download_time' = ? WHERE id = ?`
 
-	if _, err := fr.db.Exec(query, date.Format(time.RFC3339), fileId); err != nil {
+	if _, err := fr.db.Exec(query, date.Format(time.RFC3339Nano), fileId); err != nil {
 		err = errors.Wrapf(err, "could not set download_time for file id %s", fileId)
 	}
 

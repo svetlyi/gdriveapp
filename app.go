@@ -19,9 +19,12 @@ import (
 )
 
 func main() {
-	cfg, err := config.ReadCreateIfNotExist()
+	if err := config.InitCfg(); err != nil {
+		fmt.Println("could not initialize configuration", err)
+	}
+	cfg, err := config.Read()
 	if nil != err {
-		fmt.Println("could not get read config", err)
+		fmt.Println("could not read config", err)
 		os.Exit(1)
 	}
 	log, logErr := logger.New(config.GetAppName(), cfg.LogFileMaxSize, uint8(cfg.LogVerbosity), true)
@@ -31,7 +34,7 @@ func main() {
 	}
 
 	log.Info("directory to store \"My Drive\"", cfg.DrivePath)
-	cfgDir, cfgDirErr := config.GetCfgDir()
+	cfgDir, cfgDirErr := config.GetDir()
 	if nil != cfgDirErr {
 		log.Error("could not get config dir", cfgDirErr)
 		os.Exit(1)
@@ -54,7 +57,7 @@ func main() {
 
 	// first sync changes in the remote drive
 	rootFolder, err := repository.GetRootFolder()
-	rd := rdrive.New(*srv.Files, *srv.Changes, repository, log, app.New(dbInstance, log), cfg.PageSizeToQuery)
+	rd := rdrive.New(*srv.Files, *srv.Changes, repository, log, app.New(dbInstance, log), cfg)
 	if errors.Cause(err) == sql.ErrNoRows {
 		if err = rd.FillDb(); nil != err {
 			log.Error("synchronization error", err)

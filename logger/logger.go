@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 var logPath string
@@ -57,17 +58,18 @@ func (l Logger) log(v ...interface{}) {
 	var msg string
 	isFirstArgString := "string" == fmt.Sprintf("%T", v[0])
 
+	timeString := time.Now().Format(time.RFC3339)
 	switch {
 	case isFirstArgString && len(v[1:]) > 0:
-		msg = fmt.Sprintf("%s, %+v", v[0], v[1:])
+		msg = fmt.Sprintf("[%s] %s, %+v", timeString, v[0], v[1:])
 	case isFirstArgString:
-		msg = fmt.Sprintf("%s", v[0])
+		msg = fmt.Sprintf("[%s] %s", timeString, v[0])
 	default:
-		msg = fmt.Sprintf("%+v", v)
+		msg = fmt.Sprintf("[%s] %+v", timeString, v)
 	}
 
 	if l.alsoUseStdout {
-		log.Println(msg)
+		fmt.Println(msg)
 	}
 	f := l.getLogFile()
 	defer f.Close()

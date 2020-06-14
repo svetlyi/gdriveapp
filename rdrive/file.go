@@ -29,7 +29,7 @@ func (d *Drive) getFilesList(filesChan chan *drive.File) {
 		if "" != nextPageToken {
 			filesListCall.PageToken(nextPageToken)
 		}
-		fileList, err := filesListCall.PageSize(d.pageSizeToQuery).Fields(
+		fileList, err := filesListCall.PageSize(d.cfg.PageSizeToQuery).Fields(
 			googleapi.Field(fmt.Sprintf("nextPageToken, files(%s)", fileFieldsSet)),
 		).Do()
 
@@ -80,7 +80,7 @@ func (d *Drive) getChangedFilesList(filesChan chan *drive.Change, exitChan contr
 			d.log.Info("next page token", nextPageToken)
 		}
 		changesListCall = d.changesService.List(nextPageToken)
-		changeList, err := changesListCall.PageSize(d.pageSizeToQuery).Fields(
+		changeList, err := changesListCall.PageSize(d.cfg.PageSizeToQuery).Fields(
 			googleapi.Field(fmt.Sprintf("nextPageToken, changes(removed, fileId, file(%s))", fileFieldsSet)),
 		).Do()
 
@@ -166,7 +166,7 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 		}{file, localChangeType, remoteChangeType})
 	}
 
-	curFullFilePath := lfile.GetCurFullPath(file)
+	curFullFilePath := lfile.GetCurFullPath(d.cfg, file)
 	if specification.IsFolder(file) {
 		switch { // the only the things that can happen to a folder are: move, Delete
 		case contracts.FILE_MOVED == remoteChangeType:
@@ -248,7 +248,7 @@ func (d *Drive) SyncRemoteWithLocal(file contracts.File) error {
 // handleRemovedRemotely removes a file locally because it was remoted remotely
 func (d *Drive) handleRemovedRemotely(file contracts.File) (err error) {
 	d.log.Debug("removing file", file)
-	curFullFilePath := lfile.GetCurFullPath(file)
+	curFullFilePath := lfile.GetCurFullPath(d.cfg, file)
 	if _, err = os.Stat(curFullFilePath); os.IsNotExist(err) {
 		return nil // we are going to remove a file, but it does not exist. just do nothing in this case
 	}
@@ -264,8 +264,8 @@ func (d *Drive) handleRemovedRemotely(file contracts.File) (err error) {
 // handleMovedRemotely moves a file from the old to the new location
 func (d *Drive) handleMovedRemotely(file contracts.File) (err error) {
 	d.log.Debug("moving file", file)
-	curFullFilePath := lfile.GetCurFullPath(file)
-	getPrevFullPath := lfile.GetPrevFullPath(file)
+	curFullFilePath := lfile.GetCurFullPath(d.cfg, file)
+	getPrevFullPath := lfile.GetPrevFullPath(d.cfg, file)
 	if _, err = os.Stat(getPrevFullPath); os.IsNotExist(err) {
 		return nil // we are going to move a file, but it does not exist. just do nothing in this case
 	}
@@ -286,7 +286,7 @@ func (d *Drive) handleMovedRemotely(file contracts.File) (err error) {
 
 // isChangedLocally determines if the file was changed locally (updated or deleted)
 func (d *Drive) isChangedLocally(file contracts.File) (contracts.FileChangeType, error) {
-	curFullPath := lfile.GetCurFullPath(file)
+	curFullPath := lfile.GetCurFullPath(d.cfg, file)
 
 	if stats, err := os.Stat(curFullPath); os.IsNotExist(err) {
 		if file.DownloadTime.IsZero() {
@@ -294,7 +294,7 @@ func (d *Drive) isChangedLocally(file contracts.File) (contracts.FileChangeType,
 		} else {
 			return contracts.FILE_DELETED, nil
 		}
-	} else if err == nil { // if the file exist
+	} else if err == nil { // if the file exists
 		if file.DownloadTime.IsZero() { // it has never been downloaded, but it exists
 			if sameAsRemote, err := d.isLocalSameAsRemote(file); nil == err {
 				if sameAsRemote {
@@ -346,13 +346,13 @@ func (d *Drive) updateRemote(file contracts.File) error {
 		return err
 	}
 
-	curFullPath := lfile.GetCurFullPath(file)
+	curFullPath := lfile.GetCurFullPath(d.cfg, file)
 	if lf, err := os.Open(curFullPath); err == nil {
 		rf, err := d.filesService.Update(file.Id, &drive.File{}).Media(lf).Do()
 		if err != nil {
 			return errors.Wrap(err, "could not update file remotely")
 		}
-		if t, err := time.Parse(time.RFC3339, rf.ModifiedTime); err != nil {
+		if t, err := time.Parse(time.RFC3339Nano, rf.ModifiedTime); err != nil {
 			return d.fileRepository.SetPrevRemoteModificationDate(file.Id, t)
 		} else {
 			return errors.Wrapf(err, "could not parse modified time %s", rf.ModifiedTime)
@@ -405,6 +405,9 @@ func (d *Drive) Upload(curFullPath string, parentIds []string) error {
 			Copy(sameFile.Id, &drive.File{Name: stat.Name(), Parents: parentIds}).
 			Fields(googleapi.Field(fileFieldsSet)).
 			Do()
+		if nil != err {
+			return errors.Wrapf(err, "could not copy file %s remotely", curFullPath)
+		}
 	}
 	err = d.fileRepository.CreateFile(rf)
 	if nil != err {
@@ -460,7 +463,7 @@ func (d *Drive) Delete(file contracts.File) error {
 }
 
 func (d *Drive) download(file contracts.File) error {
-	fileFullPath := lfile.GetCurFullPath(file)
+	fileFullPath := lfile.GetCurFullPath(d.cfg, file)
 
 	if sameFileExists, err := d.isLocalSameAsRemote(file); err == nil && sameFileExists {
 		d.log.Debug(fmt.Sprintf("skipping file %s: already exists", file.Id))
@@ -516,7 +519,7 @@ func (d *Drive) download(file contracts.File) error {
 // if it exists, we won't download it. We need it when for some reason the database was empty
 // or the downloaded time in the database is null
 func (d *Drive) isLocalSameAsRemote(file contracts.File) (bool, error) {
-	fileFullPath := lfile.GetCurFullPath(file)
+	fileFullPath := lfile.GetCurFullPath(d.cfg, file)
 	stat, err := os.Stat(fileFullPath)
 
 	if err != nil {
@@ -540,7 +543,7 @@ func (d *Drive) isLocalSameAsRemote(file contracts.File) (bool, error) {
 }
 
 func (d *Drive) setDownloadTimeByStatsForFile(file contracts.File) error {
-	fileFullPath := lfile.GetCurFullPath(file)
+	fileFullPath := lfile.GetCurFullPath(d.cfg, file)
 	if stat, err := os.Stat(fileFullPath); nil == err {
 		return d.fileRepository.SetDownloadTime(file.Id, stat.ModTime())
 	} else {

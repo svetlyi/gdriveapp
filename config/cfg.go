@@ -1,9 +1,7 @@
 package config
 
 import (
-	"bufio"
 	"encoding/json"
-	"fmt"
 	"github.com/pkg/errors"
 	"github.com/svetlyi/gdriveapp/contracts"
 	"io/ioutil"
@@ -11,7 +9,6 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
-	"strings"
 )
 
 type Cfg struct {
@@ -24,10 +21,12 @@ type Cfg struct {
 
 var appName = "svetlyi_gdriveapp"
 var cfgPath string
-var cfgCache Cfg
 
 func init() {
-	if path, err := GetCfgDir(); nil == err {
+	if err := InitCfg(); err != nil {
+		log.Fatal("could not initialize config", err)
+	}
+	if path, err := GetDir(); nil == err {
 		cfgPath = filepath.Join(path, "config.json")
 	} else {
 		log.Fatal("could not get configuration dir", err)
@@ -73,7 +72,7 @@ func newDefault() (Cfg, error) {
 		log.Fatal("could not get current user info", err)
 	}
 
-	cfgDir, cfgDirErr := GetCfgDir()
+	cfgDir, cfgDirErr := GetDir()
 	if nil != cfgDirErr {
 		return Cfg{}, errors.Wrap(cfgDirErr, "could not get config dir")
 	}
@@ -83,61 +82,24 @@ func newDefault() (Cfg, error) {
 	return defaultCfg, nil
 }
 
-func ReadCreateIfNotExist() (Cfg, error) {
-	cfg, err := Read()
-	if nil != err {
-		if os.IsNotExist(errors.Cause(err)) {
-			cfg, err = newDefault()
-			if nil != err {
-				return cfg, errors.Wrap(err, "could not get default config")
-			}
-			r := bufio.NewReader(os.Stdin)
-			var drivePath string
-			for {
-				fmt.Printf("Store \"My Drive\" folder in (%s) absolute path: ", cfg.DrivePath)
-				drivePath, err = r.ReadString('\n')
-				drivePath = strings.Trim(drivePath, " \n")
-				if nil != err {
-					return cfg, errors.Wrap(err, "could not read custom folder")
-				}
-				if "" != drivePath {
-					if isDrivePathValid(drivePath) {
-						cfg.DrivePath = drivePath
-						break
-					}
-				} else {
-					break
-				}
-			}
-
-			if err = Save(cfg); nil != err {
-				return cfg, errors.Wrap(err, "could not save config")
-			}
-		}
-	}
-	cfgCache = cfg
-
-	return cfg, err
-}
-
-func isDrivePathValid(path string) bool {
-	return strings.HasSuffix(path, string(os.PathSeparator)) &&
-		strings.HasPrefix(path, string(os.PathSeparator))
-}
-
-func GetCfgDir() (string, error) {
-	usrConfDir, err := os.UserConfigDir()
-	if nil != err {
-		return "", errors.Wrap(err, "could not get current user's config dir")
-	}
-
-	return filepath.Join(usrConfDir, appName), nil
-}
-
 func GetAppName() string {
 	return appName
 }
 
-func GetCfg() Cfg {
-	return cfgCache
+func getCfgPath() (string, error) {
+	if path, err := GetDir(); nil == err {
+		return filepath.Join(path, "config.json"), nil
+	} else {
+		return "", err
+	}
+}
+
+func GetDir() (string, error) {
+	usrConfDir, err := os.UserConfigDir()
+	if nil != err {
+		return "", errors.Wrap(err, "could not get current user's config dir")
+	}
+	dir := filepath.Join(usrConfDir, appName)
+
+	return dir, err
 }

@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 )
 
-func GetCurFullPath(file contracts.File) string {
-	return filepath.Join(config.GetCfg().DrivePath, file.CurPath)
+func GetCurFullPath(cfg config.Cfg, file contracts.File) string {
+	return filepath.Join(cfg.DrivePath, file.CurPath)
 }
 
-func GetPrevFullPath(file contracts.File) string {
-	return filepath.Join(config.GetCfg().DrivePath, file.PrevPath)
+func GetPrevFullPath(cfg config.Cfg, file contracts.File) string {
+	return filepath.Join(cfg.DrivePath, file.PrevPath)
 }

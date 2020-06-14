@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/pkg/errors"
 	"github.com/svetlyi/gdriveapp/app"
+	"github.com/svetlyi/gdriveapp/config"
 	"github.com/svetlyi/gdriveapp/contracts"
 	"github.com/svetlyi/gdriveapp/rdrive/db/file"
 	"google.golang.org/api/drive/v3"
@@ -14,12 +15,12 @@ import (
 )
 
 type Drive struct {
-	filesService    drive.FilesService
-	changesService  drive.ChangesService
-	fileRepository  file.Repository
-	appState        app.Store
-	log             contracts.Logger
-	pageSizeToQuery int64
+	filesService   drive.FilesService
+	changesService drive.ChangesService
+	fileRepository file.Repository
+	appState       app.Store
+	log            contracts.Logger
+	cfg            config.Cfg
 }
 
 func New(
@@ -28,15 +29,15 @@ func New(
 	fileRepository file.Repository,
 	log contracts.Logger,
 	appState app.Store,
-	pageSizeToQuery int64,
+	cfg config.Cfg,
 ) Drive {
 	return Drive{
-		filesService:    filesService,
-		changesService:  changesService,
-		fileRepository:  fileRepository,
-		log:             log,
-		appState:        appState,
-		pageSizeToQuery: pageSizeToQuery,
+		filesService:   filesService,
+		changesService: changesService,
+		fileRepository: fileRepository,
+		log:            log,
+		appState:       appState,
+		cfg:            cfg,
 	}
 }
 

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"github.com/pkg/errors"
@@ -14,12 +15,12 @@ import (
 )
 
 // GetTokenSource retrieves a token, saves the token, then returns the generated client.
-func GetTokenSource(configPath string) (oauth2.TokenSource, error) {
+func GetTokenSource(configDirPath string) (oauth2.TokenSource, error) {
 	// The file token.json stores the user's access and refresh tokens, and is
 	// created automatically when the authorization flow completes for the first
 	// time.
-	tokFile := filepath.Join(configPath, "token.json")
-	cfg, err := readCredsConfig(configPath)
+	tokFile := filepath.Join(configDirPath, "token.json")
+	cfg, err := readCredsConfig(configDirPath)
 	if nil != err {
 		return nil, errors.Wrap(err, "could not read config with credentials")
 	}
@@ -37,10 +38,17 @@ func GetTokenSource(configPath string) (oauth2.TokenSource, error) {
 	return cfg.TokenSource(context.Background(), tok), nil
 }
 
-func readCredsConfig(configPath string) (*oauth2.Config, error) {
-	b, err := ioutil.ReadFile(filepath.Join(configPath, "credentials.json"))
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to read client config file")
+func readCredsConfig(configDirPath string) (*oauth2.Config, error) {
+	credsFilePath := filepath.Join(configDirPath, "credentials.json")
+	var (
+		b   []byte
+		err error
+	)
+	b, err = ioutil.ReadFile(credsFilePath)
+	for err != nil {
+		fmt.Printf("Make sure the key file '%s' exists and is readable. Press Enter to continue", credsFilePath)
+		bufio.NewReader(os.Stdin).ReadLine()
+		b, err = ioutil.ReadFile(credsFilePath)
 	}
 
 	config, err := google.ConfigFromJSON(b, drive.DriveScope)

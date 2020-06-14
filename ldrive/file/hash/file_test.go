@@ -10,8 +10,7 @@ func TestHash(t *testing.T) {
 		if nil != err {
 			t.Error("could not calculate hash", err)
 		}
-		var expectedHash = "f20d9f2072bbeb6691c0f9c5099b01f3"
-		if hash != expectedHash {
+		if hash != "f20d9f2072bbeb6691c0f9c5099b01f3" {
 			t.Error("caches don't match")
 		}
 	}
