@@ -21,7 +21,7 @@ func CalcCachedHash(fileFullPath string) (string, error) {
 	f, err := os.Open(fileFullPath)
 
 	if err != nil {
-		return "", errors.Wrapf(err, "could not calculate hash for file %s", fileFullPath)
+		return "", errors.Wrapf(err, "could not open file %s to calculate hash", fileFullPath)
 	}
 	defer f.Close()
 	if stat, err := f.Stat(); nil == err {
